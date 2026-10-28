@@ -2,7 +2,7 @@
 
 import re
 from datetime import UTC, datetime
-from email import policy
+from email import policy, utils
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import format_datetime, formataddr, getaddresses, make_msgid, parsedate_to_datetime
@@ -17,7 +17,8 @@ from .models import Draft, MailBody, MailHeader
 
 _ID_ATOM = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
 _ID_PART = rf"{_ID_ATOM}(?:\.{_ID_ATOM})*"
-_ID = re.compile(rf"<{_ID_PART}@{_ID_PART}>")
+_ID_LITERAL = r"\[[\x21-\x5a\x5e-\x7e]*\]"
+_ID = re.compile(rf"<{_ID_PART}@(?:{_ID_PART}|{_ID_LITERAL})>")
 _MAX_REFERENCES = 50
 _MAX_QUOTE = 80_000
 
@@ -118,10 +119,17 @@ def addresses(value: str, required: bool = False) -> list[tuple[str, str]]:
 
 
 def _reply_addresses(value: str) -> list[tuple[str, str]]:
-    try:
-        return addresses(value)
-    except ValueError:
+    if "\r" in value or "\n" in value:
         return []
+    result = []
+    options = {"strict": False} if getattr(utils, "supports_strict_parsing", False) else {}
+    for name, address in getaddresses([value], **options):
+        try:
+            addresses(address, required=True)
+        except ValueError:
+            continue
+        result.append((name, address))
+    return result
 
 
 def make_response(

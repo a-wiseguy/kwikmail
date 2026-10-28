@@ -16,6 +16,7 @@ from kwikmeel.mail import (
 )
 from kwikmeel.models import Draft, MailBody, MailHeader
 from kwikmeel.storage import DraftStore
+from kwikmeel.threads import group_threads
 
 OWN = frozenset({"me@example.com", "alias@example.com"})
 ACCOUNT = Account("localhost", "me", "me@example.com", "Me")
@@ -40,11 +41,58 @@ def recipients(value):
     return [address.casefold() for _, address in addresses(value)]
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected_to", "expected_cc"),
+    [
+        (
+            "To",
+            "me@example.com, friend@example.com, invalid",
+            ["sender@example.com", "friend@example.com"],
+            [],
+        ),
+        ("Cc", "peer@example.com, invalid", ["sender@example.com"], ["peer@example.com"]),
+        ("Reply-To", "team@example.com, invalid", ["team@example.com"], []),
+        ("From", "good@example.com, invalid", ["good@example.com"], []),
+    ],
+)
+def test_response_preserves_valid_addresses_in_mixed_source_fields(
+    field, value, expected_to, expected_cc
+):
+    fields = {"From": "sender@example.com", "To": "me@example.com"}
+    fields[field] = value
+    raw = ("\r\n".join(f"{key}: {text}" for key, text in fields.items()) + "\r\n\r\nHi").encode()
+    draft = response(parse_body(1, raw), "reply_all")
+    assert recipients(draft.to) == expected_to
+    assert recipients(draft.cc) == expected_cc
+
+
 def test_existing_positional_models_and_empty_draft_remain_compatible():
     assert MailHeader(1, "subject", "sender", None, False).message_id == ""
     assert MailBody(1, "subject", "sender", "to", "date", "body").references == ()
     assert Draft("to", "cc", "subject", "body").in_reply_to == ""
     assert Draft(in_reply_to="<parent@example.com>", references=("<root@example.com>",)).empty
+
+
+@pytest.mark.parametrize("suffix", [", invalid", ", bad@@example.com", ","])
+def test_reply_preserves_valid_recipient_when_other_list_members_are_invalid(suffix):
+    original = replace(ORIGINAL, reply_to="team@example.com" + suffix)
+    assert recipients(response(original).to) == ["team@example.com"]
+
+
+@pytest.mark.parametrize("message_id", ["<source@[127.0.0.1]>", "<source@[IPv6:2001:db8::1]>"])
+def test_domain_literal_ids_survive_reply_mime_and_connect_conversations(message_id):
+    raw = f"From: sender@example.com\r\nMessage-ID: {message_id}\r\n\r\nHi".encode()
+    original = parse_body(1, raw)
+    header = parse_header(1, raw, ())
+    assert original.message_id == header.message_id == message_id
+    draft = response(original)
+    message, _ = build_message(ACCOUNT, draft)
+    wire = BytesParser(policy=policy.default).parsebytes(message.as_bytes())
+    assert str(wire["In-Reply-To"]) == message_id
+    assert str(wire["References"]) == message_id
+    child = parse_header(2, message.as_bytes(), ())
+    groups = group_threads([header, child])
+    assert [[member.uid for member in group.members] for group in groups] == [[2, 1]]
 
 
 def test_parsers_capture_reply_headers_and_unfold_references():
