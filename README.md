@@ -4,8 +4,6 @@ A Python terminal mail client for a self-hosted IMAP server. Split panes, Vim-st
 navigation, fuzzy finders, and a Markdown composer. The default colors take cues
 from Tokyo Night. No Nerd Font required.
 
-![Kwikmeel inbox](docs/demo.svg)
-
 ## Try it
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
@@ -194,6 +192,9 @@ The UI never waits synchronously for IMAP or SMTP. One dedicated thread owns the
 IMAP connection for each account; SMTP uses a separate connection. Normal folder loads fetch only
 the latest 100 headers using a sequence range, without listing every UID or
 downloading bodies. `page_size` can be set from 10 to 500.
+
+Conversation graphs are reused while loaded headers are unchanged. Paging and read-state
+changes rebuild the graph; filtering and expansion keep the full loaded counts.
 
 Preview requests are debounced by 120 ms. Canceled queued requests are skipped,
 and late responses cannot overwrite the latest selection. The last 24 parsed

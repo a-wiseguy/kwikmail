@@ -1,6 +1,6 @@
 # Next-version behavior and verification
 
-This specification defines the next release. It describes planned behavior, not a claim that the current implementation supports it.
+This specification defines the next release's behavior, ownership contracts and verification gates.
 
 ## Reply and forward
 
@@ -107,3 +107,5 @@ Configuration accepts legacy `[account]` or named `[accounts.personal]` tables w
 New-message counts use a successful prior UIDNEXT watermark under unchanged UIDVALIDITY and count existing UIDs within the newly allocated range. Do not treat UIDNEXT differences as message counts. First check and reset return unknown. Failed checks preserve the prior successful watermark. The server's unread count comes from STATUS UNSEEN. Search result count remains separate from folder total.
 
 Reply metadata extends the existing header, body and draft records with defaulted fields. `make_response(original, *, kind, own_addresses)` returns a draft for `reply`, `reply_all`, or `forward`. The composer uses `dataclasses.replace` or equivalent metadata-preserving reconstruction when editing fields. Pure conversation grouping returns every loaded UID exactly once and never fetches messages.
+
+Conversation grouping reuses the computed graph while loaded immutable header snapshots are unchanged. Paging, account/folder changes and read-state updates invalidate that snapshot; filtering and expansion retain complete loaded-member counts.
