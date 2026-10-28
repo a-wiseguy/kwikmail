@@ -163,7 +163,8 @@ Tests drive the actual Textual app with keypresses and use local TLS socket serv
 for IMAP and SMTP. They cover MIME parsing, search, pagination, unread flags, draft
 recovery, failed sends, certificate validation, and partial recipient rejection.
 They do not send external email. The verification script exports demo screenshots
-and reports local fuzzy-search and render timings. These are local measurements,
+and reports local fuzzy-search and header-loading timings under `.agent-work/verification/`.
+Use `--output PATH` to select another output directory. These are local measurements,
 not a guarantee about server latency.
 
 See [the architecture notes](docs/architecture.md) for ownership and tradeoffs.
