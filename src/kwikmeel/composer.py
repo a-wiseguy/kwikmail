@@ -1,7 +1,7 @@
-import asyncio
-from typing import TYPE_CHECKING, cast
+from dataclasses import replace
+from typing import TYPE_CHECKING
 
-from textual import on, work
+from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -13,7 +13,7 @@ from .models import Draft
 from .widgets import ConfirmSend
 
 if TYPE_CHECKING:
-    from .app import MailApp
+    from .session import AccountSession
 
 
 class Composer(Screen):
@@ -22,23 +22,26 @@ class Composer(Screen):
         Binding("ctrl+s", "save", "Save", priority=True),
         Binding("ctrl+enter,ctrl+x", "review_send", "Send", priority=True),
         Binding("ctrl+p", "preview", "Preview", priority=True),
-        Binding("ctrl+tab", "focus_next", "Next field", priority=True),
+        Binding("ctrl+tab", "app.focus_next", "Next field", priority=True),
+        Binding("alt+down,alt+right", "app.focus_next", "Next field", priority=True),
+        Binding("alt+up,alt+left", "app.focus_previous", "Previous field", priority=True),
     ]
 
-    def __init__(self, draft: Draft):
+    def __init__(self, session: "AccountSession", draft: Draft):
         super().__init__()
-        self.initial = draft
+        self.session = session
+        self.initial = replace(draft)
         self.busy = False
         self.delivered = False
         self.autosave_timer = None
         self.preview_timer = None
 
-    @property
-    def mail_app(self) -> "MailApp":
-        return cast("MailApp", self.app)
-
     def compose(self) -> ComposeResult:
-        yield Static(" KWIKMEEL  /  COMPOSE", classes="topbar")
+        yield Static(
+            f" KWIKMEEL  /  COMPOSE  ·  {self.session.label} <{self.session.account.address}>",
+            classes="topbar",
+            markup=False,
+        )
         with Vertical(id="compose-fields"):
             yield Label("To")
             yield Input(self.initial.to, placeholder="Name <person@example.com>", id="to")
@@ -61,11 +64,12 @@ class Composer(Screen):
         self.query_one("#to").focus()
 
     def draft(self) -> Draft:
-        return Draft(
-            self.query_one("#to", Input).value,
-            self.query_one("#cc", Input).value,
-            self.query_one("#subject", Input).value,
-            self.query_one("#editor", TextArea).text,
+        return replace(
+            self.initial,
+            to=self.query_one("#to", Input).value,
+            cc=self.query_one("#cc", Input).value,
+            subject=self.query_one("#subject", Input).value,
+            body=self.query_one("#editor", TextArea).text,
         )
 
     def status(self, text: str) -> None:
@@ -88,7 +92,7 @@ class Composer(Screen):
         if self.busy or self.delivered:
             return False
         try:
-            self.mail_app.drafts.save(self.draft())
+            self.session.drafts.save(self.draft())
         except OSError as error:
             self.status(f"Draft could not be saved: {error}")
             return False
@@ -115,14 +119,18 @@ class Composer(Screen):
             return
         draft = self.draft()
         try:
-            _, recipients = build_message(self.mail_app.backend.account, draft)
+            _, recipients = build_message(self.session.account, draft)
         except ValueError as error:
             self.status(str(error))
             return
         if not self.action_save():
             return
         self.app.push_screen(
-            ConfirmSend(", ".join(recipients), draft.subject),
+            ConfirmSend(
+                f"{self.session.label} <{self.session.account.address}>",
+                ", ".join(recipients),
+                draft.subject,
+            ),
             lambda confirmed: self.send_draft(draft) if confirmed else None,
         )
 
@@ -137,36 +145,39 @@ class Composer(Screen):
             widget.disabled = True
         self.status("Sending…")
         try:
-            raw, result = await asyncio.to_thread(self.mail_app.backend.send, draft)
+            outcome = await self.session.send(draft)
         except Exception as error:
-            self.busy = False
-            for widget in self.query("Input, TextArea"):
-                widget.disabled = False
-            self.status(
-                f"Send failed: {error}. Draft kept. If connection dropped, verify delivery "
-                "before retrying."
-            )
+            self.send_failed(str(error))
             return
-        # SMTP has accepted this message. Never offer to resend because APPEND failed.
+        if not outcome.accepted:
+            self.send_failed(outcome.error)
+            return
         self.delivered = True
-        warnings = [result.warning] if result.warning else []
-        try:
-            self.mail_app.drafts.clear()
-        except OSError as error:
-            warnings.append(f"Remove the saved draft manually: {error}")
-        if result.refused:
+        warnings = list(outcome.warnings)
+        if outcome.refused:
             warnings.append(
-                "Not delivered to: "
-                + ", ".join(result.refused)
+                "Recipients refused: "
+                + ", ".join(outcome.refused)
                 + ". Other recipients accepted; do not resend to everyone."
             )
-        try:
-            await self.mail_app.imap("append_sent", raw)
-        except Exception as error:
-            warnings.append(f"Message accepted by SMTP, but saving the Sent copy failed: {error}")
         self.busy = False
         if warnings:
-            self.status("Sent. " + " ".join(warnings) + " Press Esc to close.")
+            self.status("Accepted by SMTP. " + " ".join(warnings) + " Press Esc to close.")
         else:
             self.app.pop_screen()
-            self.app.notify("Message sent and draft cleared.", title="Sent")
+            self.app.notify("Accepted by SMTP. Recipient delivery is not confirmed.", title="Sent")
+
+    def send_failed(self, error: str) -> None:
+        self.busy = False
+        for widget in self.query("Input, TextArea"):
+            widget.disabled = False
+        self.status(
+            f"Send failed: {error}. Draft kept. If connection dropped, verify delivery "
+            "before retrying."
+        )
+
+    def on_key(self, event: events.Key) -> None:
+        if isinstance(self.focused, Input) and event.key in {"up", "down"}:
+            event.stop()
+            event.prevent_default()
+            self.focus_next() if event.key == "down" else self.focus_previous()

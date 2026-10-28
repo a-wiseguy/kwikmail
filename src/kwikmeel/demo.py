@@ -1,9 +1,18 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+from .backend import MailboxChanged
 from .config import Account
 from .mail import build_message
-from .models import Draft, MailBody, MailHeader, MailPage, SendResult
+from .models import (
+    ConnectionResult,
+    Draft,
+    MailBody,
+    MailboxStats,
+    MailHeader,
+    MailPage,
+    SendResult,
+)
 
 WELCOME = """# A quieter place for your inbox
 
@@ -37,8 +46,8 @@ Enjoy the quiet.
 
 
 class DemoBackend:
-    def __init__(self, count: int = 240):
-        self.account = Account("demo.local", "you@example.com", "you@example.com", "You")
+    def __init__(self, count: int = 240, account: Account | None = None):
+        self.account = account or Account("demo.local", "you@example.com", "you@example.com", "You")
         self.items: dict[str, list[MailHeader]] = {}
         self.sent: list[Draft] = []
         subjects = [
@@ -66,14 +75,29 @@ class DemoBackend:
                         now - timedelta(minutes=index * 37),
                         index % 4 != 0,
                         2048,
+                        message_id=f"<demo-{folder}-{size - index}@{self.account.host}>",
+                        references=(
+                            (
+                                f"<demo-{folder}-{(size - index - 1) // 3 * 3 + 1}"
+                                f"@{self.account.host}>",
+                            )
+                            if (size - index - 1) % 3
+                            else ()
+                        ),
                     )
                 )
             self.items[folder] = rows
+        self._uidnext = {
+            folder: max((row.uid for row in rows), default=0) + 1
+            for folder, rows in self.items.items()
+        }
 
     def folders(self) -> list[str]:
         return list(self.items)
 
     def page(self, folder: str, end=None, query="", validity=None) -> MailPage:
+        if validity not in (None, 1):
+            raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
         rows = self.items[folder]
         if query:
             rows = [
@@ -85,7 +109,28 @@ class DemoBackend:
         start = max(0, stop - self.account.page_size)
         return MailPage(list(reversed(list(reversed(rows))[start:stop])), len(rows), start, 1)
 
+    def stats(self, folder: str, previous: MailboxStats | None = None) -> MailboxStats:
+        rows = self.items[folder]
+        uidnext = max(self._uidnext[folder], max((row.uid for row in rows), default=0) + 1)
+        self._uidnext[folder] = uidnext
+        new_count = (
+            sum(previous.uidnext <= row.uid < uidnext for row in rows)
+            if previous is not None and previous.validity == 1
+            else None
+        )
+        return MailboxStats(
+            len(rows), sum(not row.seen for row in rows), 1, uidnext, datetime.now(UTC), new_count
+        )
+
+    def check_imap(self) -> ConnectionResult:
+        return ConnectionResult(True)
+
+    def check_smtp(self) -> ConnectionResult:
+        return ConnectionResult(True)
+
     def body(self, folder: str, validity: int, uid: int) -> MailBody:
+        if validity != 1:
+            raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
         row = next(item for item in self.items[folder] if item.uid == uid)
         content = (
             WELCOME
@@ -106,11 +151,16 @@ class DemoBackend:
             row.subject,
             row.sender,
             self.account.address,
-            row.date.strftime("%a, %d %b %Y %H:%M") if row.date else "",
+            row.date.strftime("%a, %d %b %Y %H:%M %z") if row.date else "",
             content,
+            message_id=row.message_id,
+            references=row.references,
+            in_reply_to=row.references[-1] if row.references else "",
         )
 
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
+        if validity != 1:
+            raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
         self.items[folder] = [
             replace(row, seen=True) if row.uid == uid else row for row in self.items[folder]
         ]

@@ -14,7 +14,7 @@ import trustme
 from aiosmtpd.controller import Controller
 from aiosmtpd.smtp import AuthResult
 
-from kwikmeel.backend import ImapBackend, MailboxChanged
+from kwikmeel.backend import HEADER_FIELD, ImapBackend, MailboxChanged
 from kwikmeel.config import Account
 from kwikmeel.models import Draft
 
@@ -41,7 +41,7 @@ def imap_server(tls):
     context, ca_file = tls
     commands = []
     appended = []
-    state = {"validity": 42}
+    state = {"validity": 42, "uidnext": 104, "uids": [101, 102, 103], "unread": 2}
 
     class Handler(socketserver.StreamRequestHandler):
         def send(self, data):
@@ -58,7 +58,24 @@ def imap_server(tls):
                 if verb == b"CAPABILITY":
                     self.send(b"* CAPABILITY IMAP4rev1")
                 elif verb == b"LOGIN":
+                    if state.get("reject_login"):
+                        self.send(tag + b" NO secret-auth-detail")
+                        continue
+                elif verb == b"NOOP":
                     pass
+                elif verb == b"STATUS":
+                    if state.get("fail_status"):
+                        self.send(tag + b" NO secret-status-detail")
+                        continue
+                    values = {
+                        "MESSAGES": len(state["uids"]),
+                        "UNSEEN": state["unread"],
+                        "UIDVALIDITY": state["validity"],
+                        "UIDNEXT": state["uidnext"],
+                    }
+                    fields = command.split(b"(")[1].rstrip(b")").decode().split()
+                    text = " ".join(f"{key} {values[key]}" for key in fields)
+                    self.send(f'* STATUS "INBOX" ({text})'.encode())
                 elif verb == b"LIST":
                     self.send(b'* LIST (\\HasNoChildren) "/" "INBOX"')
                     self.send(b'* LIST (\\HasNoChildren) "/" "Sent"')
@@ -80,7 +97,7 @@ def imap_server(tls):
                         sequence = uid - 100
                         if b"HEADER.FIELDS" in command:
                             payload = RAW.split(b"\r\n\r\n")[0] + b"\r\n\r\n"
-                            field = b"BODY[HEADER.FIELDS (FROM TO SUBJECT DATE)]"
+                            field = HEADER_FIELD
                         else:
                             payload = RAW
                             field = b"BODY[]<0>"
@@ -97,7 +114,14 @@ def imap_server(tls):
                         self.send(b"+ ready for search literal")
                         self.rfile.read(int(match[1]))
                         self.rfile.readline()
-                    self.send(b"* SEARCH 101 103")
+                    if b" UID " in command:
+                        low, high = map(int, command.split()[-1].split(b":"))
+                        matches = [uid for uid in state["uids"] if low <= uid <= high]
+                        self.send(b"* SEARCH " + b" ".join(str(uid).encode() for uid in matches))
+                        if state.get("reset_during_search"):
+                            state["validity"] += 1
+                    else:
+                        self.send(b"* SEARCH 101 103")
                 elif command.startswith(b"UID STORE"):
                     self.send(b"* 3 FETCH (UID 103 FLAGS (\\Seen))")
                 elif verb == b"APPEND":
