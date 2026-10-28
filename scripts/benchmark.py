@@ -5,6 +5,7 @@ import asyncio
 import cProfile
 import hashlib
 import importlib.metadata
+import importlib.util
 import json
 import os
 import platform
@@ -129,6 +130,17 @@ class FixtureClient:
         self.counts["commands"] += 1
         return {b"EXISTS": self.size, b"UIDVALIDITY": 1}
 
+    def folder_status(self, folder, fields):
+        assert folder == "INBOX"
+        self.counts["commands"] += 1
+        values = {
+            b"MESSAGES": self.size,
+            b"UNSEEN": self.size,
+            b"UIDVALIDITY": 1,
+            b"UIDNEXT": self.size + 1,
+        }
+        return {key: values[key] for key in (field.encode() for field in fields)}
+
     def fetch(self, selected, fields):
         self.counts["commands"] += 1
         if isinstance(selected, str):
@@ -136,12 +148,14 @@ class FixtureClient:
             start, end = map(int, selected.split(":"))
             self.counts["headers"] += end - start + 1
             rows = {}
+            header_field = next(field for field in fields if field.startswith("BODY.PEEK"))
+            response_field = header_field.replace("BODY.PEEK", "BODY").encode()
             for uid in range(start, end + 1):
                 raw = self.headers[uid]
                 self.counts["bytes"] += len(raw)
                 rows[uid] = {
                     b"UID": uid,
-                    b"BODY[HEADER.FIELDS (FROM TO SUBJECT DATE)]": raw,
+                    response_field: raw,
                     b"FLAGS": (),
                     b"RFC822.SIZE": len(raw),
                 }
@@ -228,7 +242,36 @@ async def suite(size, delays):
     backend = Backend(Account("fixture.invalid", "reader", "reader@fixture.invalid"))
     record = Recorder()
     with tempfile.TemporaryDirectory() as tmp:
-        app = MailApp(backend, DraftStore(Path(tmp) / "draft.json"))
+        drafts = DraftStore(Path(tmp) / "draft.json")
+        session = None
+        if importlib.util.find_spec("kwikmeel.session") is not None:
+            from kwikmeel.session import AccountSession
+
+            from kwikmeel.models import MessageRef
+
+            session = AccountSession("fixture", "Fixture", backend, drafts)
+            app = MailApp([session], "fixture")
+        else:
+            app = MailApp(backend, drafts)
+
+        async def mail_call(method, *args):
+            if session is None:
+                return await app.imap(method, *args)
+            if method == "drain":
+                return await session.folders()
+            if method == "body":
+                return await session.body(MessageRef(session.key, *args))
+            raise ValueError(f"Unsupported benchmark operation: {method}")
+
+        def invalidate_preview():
+            if session is not None:
+                app.invalidate_selection()
+            else:
+                if app.preview_timer:
+                    app.preview_timer.stop()
+                app.preview_serial += 1
+                app.workers.cancel_group(app, "preview")
+
         started = time.perf_counter()
         startup_cpu = time.process_time()
         async with app.run_test(size=(150, 45)) as pilot:
@@ -260,11 +303,8 @@ async def suite(size, delays):
 
                 await record.measure("headers.next_page", paging, client.counts, size=size)
 
-            if app.preview_timer:
-                app.preview_timer.stop()
-            app.preview_serial += 1
-            app.workers.cancel_group(app, "preview")
-            await app.imap("drain")
+            invalidate_preview()
+            await mail_call("drain")
             app.headers = [parse_header(uid, client.headers[uid], ()) for uid in range(size, 0, -1)]
             app.filter_query = "backup"
             app.render_rows()
@@ -354,16 +394,13 @@ async def suite(size, delays):
 
                 await record.measure("body.render", body_render, kind=kind, size=size)
 
-            if app.preview_timer:
-                app.preview_timer.stop()
-            app.preview_serial += 1
-            app.workers.cancel_group(app, "preview")
-            await app.imap("drain")
+            invalidate_preview()
+            await mail_call("drain")
             backend.bodies.clear()
 
             async def fetch_render(cached):
                 before = client.counts.copy()
-                body = await app.imap("body", "INBOX", 1, 1)
+                body = await mail_call("body", "INBOX", 1, 1)
                 await app.preview.show_body(body)
                 await frame(app)
                 assert "body-marker" in app.preview.query_one(Markdown)._markdown
@@ -384,9 +421,9 @@ async def suite(size, delays):
             async def eviction():
                 backend.bodies.clear()
                 for uid in range(1, 26):
-                    await app.imap("body", "INBOX", 1, uid)
+                    await mail_call("body", "INBOX", 1, uid)
                 before = client.counts["bodies"]
-                body = await app.imap("body", "INBOX", 1, 1)
+                body = await mail_call("body", "INBOX", 1, 1)
                 assert "body-marker" in body.markdown
                 assert client.counts["bodies"] == before + 1
                 return {"unique_bodies": 25, "evicted_refetches": 1}
@@ -401,13 +438,13 @@ async def suite(size, delays):
             await frame(app)
             if app.preview_timer:
                 app.preview_timer.stop()
-            await app.imap("drain")
+            await mail_call("drain")
             backend.bodies.clear()
             for delay_ms in delays:
                 backend.bodies.clear()
                 client.delay = delay_ms / 1000
                 client.body_started.clear()
-                pending = asyncio.create_task(app.imap("body", "INBOX", 1, 2))
+                pending = asyncio.create_task(mail_call("body", "INBOX", 1, 2))
                 await until(client.body_started.is_set)
                 gaps = []
                 stopped = asyncio.Event()
@@ -464,11 +501,8 @@ async def suite(size, delays):
                 result["heartbeat_max_gap_ms"] = max(gaps, default=0)
                 result["heartbeat_ticks"] = len(gaps)
                 client.delay = 0
-                if app.preview_timer:
-                    app.preview_timer.stop()
-                app.preview_serial += 1
-                app.workers.cancel_group(app, "preview")
-                await app.imap("drain")
+                invalidate_preview()
+                await mail_call("drain")
     return record.results
 
 

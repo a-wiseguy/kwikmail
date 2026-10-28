@@ -18,7 +18,7 @@ def test_fixture_is_deterministic_and_sequence_fetch_is_bounded():
     second = benchmark.FixtureClient(10000)
     assert first.headers == second.headers and first.payloads == second.payloads
     first.use_uid = False
-    rows = first.fetch("9901:10000", [])
+    rows = first.fetch("9901:10000", ["BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)]"])
     assert list(rows) == list(range(9901, 10001))
     assert first.counts["headers"] == 100 and first.counts["bytes"] > 0
     first.use_uid = True
