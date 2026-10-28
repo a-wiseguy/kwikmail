@@ -48,7 +48,8 @@ def test_rejects_too_few_samples_and_tracked_output():
 
 async def test_common_suite_checks_rendered_results_and_real_cache_work():
     results = await benchmark.suite(100, [50])
-    assert results and all(result["status"] == "ok" for result in results), results
+    assert results
+    assert [result for result in results if result["status"] != "ok"] == []
     by_name = {result["name"]: result for result in results}
     assert by_name["headers.first_page"]["counts"]["headers"] == 100
     assert by_name["body.cold_to_frame"]["counts"]["bodies"] == 1
@@ -58,6 +59,30 @@ async def test_common_suite_checks_rendered_results_and_real_cache_work():
     assert navigation["work"]["latest_preview_verified"]
     assert isinstance(navigation["work"]["body_pending_at_dispatch"], bool)
     assert navigation["heartbeat_ticks"] > 0
+    account = by_name["account.slow_isolation_to_frame"]
+    assert account["work"]["old_body_pending_at_frame"]
+    assert account["work"]["late_old_body_ignored"]
+    assert account["work"]["new_account_preview_verified"]
+    assert by_name["account.switch_to_frame"]["counts"]["headers"] == 100
+    assert by_name["conversation.group"]["work"]["headers_grouped"] == 100
+    assert by_name["conversation.group_to_frame"]["work"]["rows"] == 10
+    assert by_name["conversation.expand_to_frame"]["work"]["expanded_members"] == 10
+    assert by_name["conversation.filter_to_frame"]["work"]["matching_uid"] == 99
     assert {
         result["query"] for result in results if result["name"] == "fuzzy.input_to_frame"
     } == set(benchmark.QUERIES)
+
+
+def test_conversation_fixture_has_real_ancestry_and_separate_search_match():
+    from kwikmeel.mail import parse_header
+    from kwikmeel.threads import group_threads
+
+    headers = [
+        parse_header(uid, benchmark.thread_header(uid, 100), ()) for uid in range(100, 0, -1)
+    ]
+    groups = group_threads(headers)
+    assert len(groups) == 10 and all(len(group.members) == 10 for group in groups)
+    assert [header.uid for header in groups[0].members] == list(range(100, 90, -1))
+    assert headers[1].subject == "zqxvplmn"
+    assert headers[1].references == ("<fixture-91@fixture.invalid>",)
+    assert benchmark.raw_header(99, 100) != benchmark.thread_header(99, 100)

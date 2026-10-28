@@ -119,6 +119,7 @@ class FixtureClient:
         self.counts = Counter()
         self.delay = delay
         self.body_started = threading.Event()
+        self.body_release = None
         self.use_uid = True
 
     def list_folders(self):
@@ -163,6 +164,8 @@ class FixtureClient:
         assert len(selected) == 1
         uid = selected[0]
         self.body_started.set()
+        if self.body_release is not None:
+            assert self.body_release.wait(15), "blocked fixture body was not released"
         if self.delay:
             time.sleep(self.delay)
         raw = self.payloads[list(self.payloads)[(uid - 1) % 4]]
@@ -189,6 +192,24 @@ async def frame(app):
     app.refresh()
     app.call_after_refresh(lambda: done.set_result(None) if not done.done() else None)
     await asyncio.wait_for(done, 15)
+
+
+def viewport(app):
+    """Read the composed terminal frame after its refresh has completed."""
+    return "\n".join(strip.text for strip in app.screen._compositor.render_strips())
+
+
+def thread_header(uid, size):
+    root = ((uid - 1) // 10) * 10 + 1
+    raw = raw_header(uid, size)
+    subject = "zqxvplmn" if uid == size - 1 else f"Conversation {root:06d} message {uid:06d}"
+    before, rest = raw.split(b"Subject: ", 1)
+    _, after = rest.split(b"\r\n", 1)
+    raw = before + b"Subject: " + subject.encode() + b"\r\n" + after
+    if uid != root:
+        ancestry = f"References: <fixture-{root}@fixture.invalid>\r\n".encode()
+        raw = raw.replace(b"\r\n\r\n", b"\r\n" + ancestry + b"\r\n")
+    return raw
 
 
 class Recorder:
@@ -245,9 +266,8 @@ async def suite(size, delays):
         drafts = DraftStore(Path(tmp) / "draft.json")
         session = None
         if importlib.util.find_spec("kwikmeel.session") is not None:
-            from kwikmeel.session import AccountSession
-
             from kwikmeel.models import MessageRef
+            from kwikmeel.session import AccountSession
 
             session = AccountSession("fixture", "Fixture", backend, drafts)
             app = MailApp([session], "fixture")
@@ -284,6 +304,7 @@ async def suite(size, delays):
                 assert [row.uid for row in app.headers] == list(range(size, size - 100, -1))
                 assert client.counts["headers"] == 100 and app.total == size
                 assert app.table.get_row_at(0)[2].plain == "Backup verification"
+                assert "Backup verification" in viewport(app)
                 return {"headers": 100, "visible_rows": min(100, app.table.size.height - 1)}
 
             result = await record.measure("headers.first_page", startup, client.counts, size=size)
@@ -314,8 +335,8 @@ async def suite(size, delays):
             render_count = [0]
             original_render = app.render_rows
 
-            def observed_render():
-                original_render()
+            def observed_render(*args, **kwargs):
+                original_render(*args, **kwargs)
                 render_count[0] += 1
 
             app.render_rows = observed_render
@@ -329,6 +350,7 @@ async def suite(size, delays):
                     else:
                         assert app.filtered_headers[0].uid == expected
                         assert app.table.get_row_at(0)[2].plain == app.filtered_headers[0].subject
+                        assert app.filtered_headers[0].subject in viewport(app)
                     return {
                         "headers_scored": size,
                         "rows": app.table.row_count,
@@ -387,6 +409,7 @@ async def suite(size, delays):
                     await app.preview.show_body(body)
                     await frame(app)
                     assert "body-marker" in app.preview.query_one(Markdown)._markdown
+                    assert "body-marker" in viewport(app)
                     return {
                         "markdown_chars": len(body.markdown),
                         "rendered_blocks": len(app.preview.query_one(Markdown).children),
@@ -404,6 +427,7 @@ async def suite(size, delays):
                 await app.preview.show_body(body)
                 await frame(app)
                 assert "body-marker" in app.preview.query_one(Markdown)._markdown
+                assert "body-marker" in viewport(app)
                 assert client.counts["bodies"] - before["bodies"] == (0 if cached else 1)
                 return {
                     "bodies_rendered": 1,
@@ -503,6 +527,215 @@ async def suite(size, delays):
                 client.delay = 0
                 invalidate_preview()
                 await mail_call("drain")
+    if session is not None:
+        record.results.extend(await integrated_suite(size))
+    return record.results
+
+
+async def integrated_suite(size):
+    """New capabilities have correctness gates, without inventing a legacy baseline."""
+    from kwikmeel.app import MailApp
+    from kwikmeel.backend import ImapBackend
+    from kwikmeel.config import Account
+    from kwikmeel.mail import parse_header
+    from kwikmeel.models import MessageRef
+    from kwikmeel.session import AccountSession
+    from kwikmeel.storage import DraftStore
+    from kwikmeel.threads import group_threads
+
+    class Backend(ImapBackend):
+        def __init__(self, client, address):
+            super().__init__(Account("fixture.invalid", "reader", address))
+            self.fixture = client
+
+        def connection(self):
+            return self.fixture
+
+        def close(self):
+            pass
+
+    primary, secondary = FixtureClient(size), FixtureClient(size)
+    secondary.headers = {
+        uid: raw.replace(b"Subject: ", b"Subject: Secondary ")
+        for uid, raw in secondary.headers.items()
+    }
+    record = Recorder()
+    with tempfile.TemporaryDirectory() as tmp:
+        sessions = [
+            AccountSession(
+                key,
+                key.title(),
+                Backend(client, f"{key}@fixture.invalid"),
+                DraftStore(Path(tmp) / f"{key}.json"),
+            )
+            for key, client in (("primary", primary), ("secondary", secondary))
+        ]
+        app = MailApp(sessions, "primary")
+        async with app.run_test(size=(150, 45)):
+            await until(
+                lambda: hasattr(app, "table") and not app.loading and app.table.row_count == 100
+            )
+            await frame(app)
+
+            async def switched(key, subject):
+                app.switch_account(key)
+                await until(
+                    lambda: app.active_key == key and not app.loading and app.table.row_count == 100
+                )
+                await frame(app)
+                assert [row.uid for row in app.headers] == list(range(size, size - 100, -1))
+                assert app.selected().subject == subject
+                assert subject in viewport(app)
+                assert f"{key}@fixture.invalid" in viewport(app)
+                assert not app.filter_query and not app.server_query
+                assert app.next_end == size - 100
+                return {
+                    "accounts": 2,
+                    "headers": 100,
+                    "active_account": key,
+                    "selected_uid": app.selected().uid,
+                    "overlapping_uids": 100,
+                }
+
+            app.filter_query = "backup"
+            app.render_rows()
+            await record.measure(
+                "account.switch_to_frame",
+                lambda: switched("secondary", "Secondary Backup verification"),
+                secondary.counts,
+                size=size,
+            )
+            await switched("primary", "Backup verification")
+            app.invalidate_selection()
+            await sessions[0].folders()
+            sessions[0].backend.bodies.clear()
+            primary.body_started.clear()
+            primary.body_release = threading.Event()
+            try:
+                ref = MessageRef("primary", "INBOX", 1, size)
+                app.load_preview(app.ticket("preview"), ref)
+                await until(primary.body_started.is_set)
+
+                async def isolated():
+                    work = await switched("secondary", "Secondary Backup verification")
+                    assert not primary.body_release.is_set()
+                    assert primary.counts["bodies"] == before
+                    await until(
+                        lambda: (
+                            "Secondary Backup verification"
+                            in str(app.preview.query_one("Static").render())
+                        )
+                    )
+                    await frame(app)
+                    assert "Secondary Backup verification" in viewport(app)
+                    return {
+                        **work,
+                        "blocked_account": "primary",
+                        "old_body_pending_at_frame": primary.counts["bodies"] == before,
+                        "new_account_preview_verified": True,
+                    }
+
+                before = primary.counts["bodies"]
+                result = await record.measure(
+                    "account.slow_isolation_to_frame", isolated, secondary.counts, size=size
+                )
+                primary.body_release.set()
+                try:
+                    await sessions[0].folders()
+                    await frame(app)
+                    assert primary.counts["bodies"] == before + 1
+                    assert app.active_key == "secondary"
+                    assert "Secondary Backup verification" in str(
+                        app.preview.query_one("Static").render()
+                    )
+                    result["work"]["late_old_body_ignored"] = True
+                except Exception as error:
+                    result.update(
+                        status="failed", error=f"late body: {type(error).__name__}: {error}"
+                    )
+            finally:
+                primary.body_release.set()
+
+            app.invalidate_selection()
+            await sessions[1].folders()
+            headers = [
+                parse_header(uid, thread_header(uid, size), ()) for uid in range(size, 0, -1)
+            ]
+
+            groups_count = (size + 9) // 10
+            top_root = ((size - 1) // 10) * 10 + 1
+            top_count = size - top_root + 1
+
+            async def grouping():
+                groups = group_threads(headers)
+                assert len(groups) == groups_count
+                assert sorted(h.uid for group in groups for h in group.members) == list(
+                    range(1, size + 1)
+                )
+                assert all(1 <= len(group.members) <= 10 for group in groups)
+                return {
+                    "headers_grouped": size,
+                    "conversations": len(groups),
+                    "maximum_messages_per_conversation": 10,
+                }
+
+            await record.measure("conversation.group", grouping, size=size)
+            app.headers = headers
+            app.grouping = False
+            app.filter_query = ""
+            app.render_rows()
+            await frame(app)
+
+            async def group_render():
+                app.action_threads()
+                await frame(app)
+                assert app.grouping and app.table.row_count == groups_count
+                assert len(app.thread_rows) == groups_count
+                assert app.thread_rows[0].count == top_count
+                assert app.thread_rows[0].unread == top_count
+                assert f"Conversation {top_root:06d}" in viewport(app)
+                return {"headers_grouped": size, "rows": app.table.row_count}
+
+            await record.measure("conversation.group_to_frame", group_render, size=size)
+
+            async def expand():
+                app.table.move_cursor(row=0)
+                app.action_expand()
+                await frame(app)
+                assert app.table.row_count == groups_count + top_count - 1
+                assert [row.header.uid for row in app.thread_rows[:top_count]] == list(
+                    range(size, top_root - 1, -1)
+                )
+                assert app.selected().uid == size
+                assert f"Conversation {top_root:06d}" in viewport(app)
+                return {
+                    "expanded_members": top_count,
+                    "rows": app.table.row_count,
+                    "selected_uid": size,
+                }
+
+            await record.measure("conversation.expand_to_frame", expand, size=size)
+            app.action_expand()
+            app.action_search()
+            await frame(app)
+
+            async def filter_thread():
+                app.search_input.value = "zqxvplmn"
+                await until(lambda: app.filter_query == "zqxvplmn" and app.table.row_count == 1)
+                await frame(app)
+                assert [h.uid for h in app.filtered_headers] == [size - 1]
+                members = min(10, size - ((size - 2) // 10) * 10)
+                assert app.thread_rows[0].count == members
+                assert app.selected().uid == size - 1
+                assert "zqxvplmn" in viewport(app)
+                return {
+                    "headers_scored": size,
+                    "rows": 1,
+                    "matching_uid": size - 1,
+                    "conversation_members": members,
+                }
+
+            await record.measure("conversation.filter_to_frame", filter_thread, size=size)
     return record.results
 
 
@@ -614,7 +847,7 @@ def main(argv=None):
                 flush=True,
             )
     report = {
-        "schema": 1,
+        "schema": 2,
         "configuration": {"sizes": args.sizes, "delays_ms": args.delay_ms, "samples": args.samples},
         "mode": "profile" if args.profile else "smoke" if args.smoke else "timing",
         "verdict": (
@@ -633,11 +866,13 @@ def main(argv=None):
             )
             + b"".join(raw_bodies().values())
         ),
+        "thread_fixture_sha256": digest(
+            b"".join(thread_header(uid, size) for size in args.sizes for uid in range(1, size + 1))
+        ),
         "harness_sha256": digest(Path(__file__).read_bytes()),
         "sample_order": "round-robin checkout order; a,b,a,b",
         "unsupported": {
-            "accounts": "requires integrated-only adapter; baseline unavailable",
-            "threads": "requires integrated-only adapter; baseline unavailable",
+            "legacy_accounts_and_threads": "new-capability scenarios run only on integrated UI",
             "tls": "run separate local TLS protocol tests",
         },
         "worker_failures": sum(
