@@ -226,8 +226,9 @@ class AccountPicker(Picker):
         Binding("ctrl+e", "test_email", "Test email", priority=True),
     ]
 
-    def __init__(self, sessions: tuple["AccountSession", ...]):
+    def __init__(self, sessions: tuple["AccountSession", ...], selected_key: str | None = None):
         self.sessions = {session.key: session for session in sessions}
+        self.selected_key = selected_key
         self.pending: set[str] = set()
         super().__init__("Accounts", {})
         self.update_choices()
@@ -271,11 +272,19 @@ class AccountPicker(Picker):
         self.choices = choices
 
     def fill(self, value: str) -> None:
+        current = self.selected_session()
+        selected_key = current.key if current else self.selected_key
         super().fill(value)
         options = self.query_one(OptionList)
         options.clear_options()
         options.add_options(Option(Text(self.choices[key]), id=key) for key in self.matches)
-        options.highlighted = 0 if self.matches else None
+        options.highlighted = (
+            self.matches.index(selected_key)
+            if selected_key in self.matches
+            else 0
+            if self.matches
+            else None
+        )
 
     def on_screen_resume(self) -> None:
         if self.is_mounted:

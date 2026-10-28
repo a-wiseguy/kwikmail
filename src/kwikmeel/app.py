@@ -466,7 +466,9 @@ class MailApp(App):
             self.switch_folder(self.session.account.inbox)
 
     def action_accounts(self) -> None:
-        self.push_screen(AccountPicker(tuple(self.sessions.values())), self.switch_account)
+        self.push_screen(
+            AccountPicker(tuple(self.sessions.values()), self.active_key), self.switch_account
+        )
 
     def action_folders(self) -> None:
         self.push_screen(

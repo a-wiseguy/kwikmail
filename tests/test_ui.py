@@ -318,6 +318,20 @@ async def test_slow_account_refresh_does_not_block_switching(tmp_path):
         assert app.active_key == "personal"
 
 
+async def test_account_picker_retains_current_default_through_stats_refresh(tmp_path):
+    sessions = two_accounts(tmp_path)
+    app = MailApp(sessions, "work")
+    async with app.run_test(size=(80, 30)) as pilot:
+        await settled(pilot)
+        await pilot.press("a")
+        assert app.screen.selected_session() is sessions[1]
+        await settled(pilot)
+        assert app.screen.selected_session() is sessions[1]
+        await pilot.press("enter")
+        await settled(pilot)
+        assert app.active_key == "work"
+
+
 async def test_conversation_counts_and_members_refresh_after_header_changes(tmp_path):
     from dataclasses import replace
 
