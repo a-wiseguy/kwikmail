@@ -1,0 +1,27 @@
+# account keys are stable identities, independent of server credentials and labels.
+# renaming a key uses a different draft location. conversion never moves drafts.
+# to recover a legacy draft, open and save it before conversion, then copy draft.json
+# from the previous state directory into the new account's state directory while closed.
+# legacy directory = sha256("host:imap_port:username")[:16]
+# named directory = "account-" + sha256(account_key)[:16]
+# state root = $XDG_STATE_HOME/kwikmeel or ~/.local/state/kwikmeel
+
+default_account = "personal"
+
+[accounts.personal]
+label = "Personal"
+host = "mail.example.com"
+username = "you@example.com"
+address = "you@example.com"
+name = "Your name"
+password_env = "KWIKMEEL_PERSONAL_PASSWORD"
+sent_folder = "Sent"
+
+[accounts.work]
+label = "Work"
+host = "mail.work.example"
+username = "you@work.example"
+address = "you@work.example"
+password_env = "KWIKMEEL_WORK_PASSWORD"
+sent_folder = "Sent"
+# all legacy account settings also apply here; see config.example.toml.

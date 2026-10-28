@@ -1,22 +1,50 @@
-"""Blocking mail operations. The app serializes IMAP on a dedicated worker thread."""
+"""Blocking mail operations serialized by their owning AccountSession."""
 
 import smtplib
 import ssl
 from collections import OrderedDict
 from contextlib import suppress
+from datetime import UTC, datetime
 
 from imapclient import IMAPClient
+from imapclient.exceptions import LoginError
 
 from .config import Account
 from .mail import build_message, parse_body, parse_header
-from .models import Draft, MailBody, MailPage, SendResult
+from .models import ConnectionResult, Draft, MailBody, MailboxStats, MailPage, SendResult
 
-HEADER_FIELD = b"BODY[HEADER.FIELDS (FROM TO SUBJECT DATE)]"
-HEADER_QUERY = "BODY.PEEK[HEADER.FIELDS (FROM TO SUBJECT DATE)]"
+HEADER_NAMES = "FROM TO CC REPLY-TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO"
+HEADER_FIELD = f"BODY[HEADER.FIELDS ({HEADER_NAMES})]".encode()
+HEADER_QUERY = f"BODY.PEEK[HEADER.FIELDS ({HEADER_NAMES})]"
 
 
 class MailboxChanged(ValueError):
     pass
+
+
+def connection_error(error: Exception, protocol: str) -> str:
+    """Do not expose server replies, credentials, subprocess output or terminal controls."""
+    if isinstance(error, ssl.SSLCertVerificationError):
+        detail = "certificate verification failed"
+    elif isinstance(error, (smtplib.SMTPAuthenticationError, LoginError)):
+        detail = "authentication failed"
+    elif isinstance(error, TimeoutError):
+        detail = "connection timed out"
+    elif isinstance(error, ssl.SSLError):
+        detail = "TLS connection failed"
+    elif isinstance(error, smtplib.SMTPRecipientsRefused):
+        detail = "all recipients were refused"
+    elif isinstance(error, smtplib.SMTPSenderRefused):
+        detail = "sender was refused"
+    elif isinstance(error, smtplib.SMTPDataError):
+        detail = "message was refused"
+    elif isinstance(error, ValueError):
+        detail = "check configuration, credentials and message fields"
+    elif isinstance(error, OSError):
+        detail = "connection failed"
+    else:
+        detail = "operation failed"
+    return f"{protocol}: {detail}."
 
 
 class ImapBackend:
@@ -112,6 +140,76 @@ class ImapBackend:
             sorted(headers, key=lambda item: item.uid, reverse=True), total, start, current_validity
         )
 
+    def stats(self, folder: str, previous: MailboxStats | None = None) -> MailboxStats:
+        client = self.connection()
+        fields = ["MESSAGES", "UNSEEN", "UIDVALIDITY", "UIDNEXT"]
+        values = client.folder_status(folder, fields)
+        try:
+            total, unread, validity, uidnext = (
+                int(values[key]) for key in (b"MESSAGES", b"UNSEEN", b"UIDVALIDITY", b"UIDNEXT")
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("Invalid mailbox STATUS response") from error
+        if total < 0 or not 0 <= unread <= total or validity < 1 or uidnext < 1:
+            raise ValueError("Invalid mailbox STATUS counts")
+        new_count = None
+        if previous is not None and previous.validity == validity:
+            if uidnext < previous.uidnext:
+                raise MailboxChanged("Mailbox UIDNEXT decreased. Refresh the connection.")
+            new_count = 0
+            if uidnext > previous.uidnext:
+                info = client.select_folder(folder, readonly=True)
+                if int(info[b"UIDVALIDITY"]) != validity:
+                    raise MailboxChanged("Mailbox changed during the check. Refresh to retry.")
+                uids = client.search(["UID", f"{previous.uidnext}:{uidnext - 1}"])
+                current = client.folder_status(folder, ["UIDVALIDITY"])
+                if int(current[b"UIDVALIDITY"]) != validity:
+                    raise MailboxChanged("Mailbox changed during the check. Refresh to retry.")
+                new_count = len({uid for uid in uids if previous.uidnext <= uid < uidnext})
+        return MailboxStats(total, unread, validity, uidnext, datetime.now(UTC), new_count)
+
+    def check_imap(self) -> ConnectionResult:
+        probe = ImapBackend(self.account)
+        try:
+            probe.connection().noop()
+            return ConnectionResult(True)
+        except Exception as error:
+            return ConnectionResult(False, connection_error(error, "IMAP"))
+        finally:
+            with suppress(Exception):
+                probe.close()
+
+    def _smtp_connection(self) -> smtplib.SMTP:
+        account = self.account
+        context = ssl.create_default_context(cafile=account.ca_file)
+        host = account.smtp_host or account.host
+        if account.smtp_security == "tls":
+            smtp = smtplib.SMTP_SSL(
+                host, account.smtp_port, timeout=account.timeout, context=context
+            )
+        else:
+            smtp = smtplib.SMTP(host, account.smtp_port, timeout=account.timeout)
+        try:
+            if account.smtp_security == "starttls":
+                smtp.ehlo()
+                smtp.starttls(context=context)
+                smtp.ehlo()
+            smtp.login(account.smtp_username or account.username, account.password(smtp=True))
+            return smtp
+        except Exception:
+            with suppress(Exception):
+                smtp.close()
+            raise
+
+    def check_smtp(self) -> ConnectionResult:
+        try:
+            smtp = self._smtp_connection()
+        except Exception as error:
+            return ConnectionResult(False, connection_error(error, "SMTP"))
+        with suppress(Exception):
+            smtp.close()
+        return ConnectionResult(True)
+
     def body(self, folder: str, validity: int, uid: int) -> MailBody:
         key = (folder, validity, uid)
         if key in self.bodies:
@@ -145,26 +243,14 @@ class ImapBackend:
             self.connection().append(self.account.sent_folder, raw, flags=[b"\\Seen"])
 
     def send(self, draft: Draft) -> tuple[bytes, SendResult]:
-        # SMTP owns its connection and may run concurrently with IMAP.
         message, recipients = build_message(self.account, draft)
-        account = self.account
-        context = ssl.create_default_context(cafile=account.ca_file)
-        host = account.smtp_host or account.host
-        if account.smtp_security == "tls":
-            smtp = smtplib.SMTP_SSL(
-                host, account.smtp_port, timeout=account.timeout, context=context
-            )
-        else:
-            smtp = smtplib.SMTP(host, account.smtp_port, timeout=account.timeout)
+        raw = message.as_bytes()
+        smtp = self._smtp_connection()
         try:
-            if account.smtp_security == "starttls":
-                smtp.ehlo()
-                smtp.starttls(context=context)
-                smtp.ehlo()
-            smtp.login(account.smtp_username or account.username, account.password(smtp=True))
-            refused = smtp.send_message(message, from_addr=account.address, to_addrs=recipients)
-            # After SMTP accepts DATA, cleanup failures must never turn success into a retry.
+            refused = smtp.send_message(
+                message, from_addr=self.account.address, to_addrs=recipients
+            )
         finally:
-            with suppress(OSError):
+            with suppress(Exception):
                 smtp.close()
-        return message.as_bytes(), SendResult(refused=refused)
+        return raw, SendResult(refused=refused)
