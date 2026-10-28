@@ -1,18 +1,18 @@
-"""Repeatable UI exercise, screenshot export, and local performance measurements."""
+"""Exercise demo workflows and export wide, narrow, and error screens."""
 
 import argparse
 import asyncio
 import json
 import os
-import statistics
+import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-from rapidfuzz import fuzz, process
-
 from kwikmeel.app import MailApp
+from kwikmeel.config import Account
 from kwikmeel.demo import DemoBackend
+from kwikmeel.session import AccountSession
 from kwikmeel.storage import DraftStore
 from kwikmeel.widgets import ReaderScreen
 
@@ -20,19 +20,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 async def main(output: Path):
+    subprocess.run(["git", "check-ignore", "--quiet", str(output.resolve())], cwd=ROOT, check=True)
     output.mkdir(parents=True, exist_ok=True)
-    # Export the intended color theme even when this script runs in a no-color CI shell.
     os.environ.pop("NO_COLOR", None)
     backend = DemoBackend(count=10_000)
-    choices = {header.uid: header.searchable for header in backend.items["INBOX"]}
-    samples = []
-    for _ in range(30):
-        started = time.perf_counter()
-        result = process.extract("backup", choices, scorer=fuzz.WRatio, limit=500, score_cutoff=40)
-        samples.append((time.perf_counter() - started) * 1000)
-        assert result and "backup" in result[0][0]
     with tempfile.TemporaryDirectory() as tmp:
-        app = MailApp(backend, DraftStore(Path(tmp) / "draft.json"))
+        sessions = [
+            AccountSession(
+                "personal", "Personal demo", backend, DraftStore(Path(tmp) / "personal.json")
+            ),
+            AccountSession(
+                "work",
+                "Work demo",
+                DemoBackend(
+                    account=Account("demo.local", "work@example.com", "work@example.com", "Work")
+                ),
+                DraftStore(Path(tmp) / "work.json"),
+            ),
+        ]
+        app = MailApp(sessions, "personal")
         started = time.perf_counter()
         async with app.run_test(size=(150, 45)) as pilot:
             deadline = time.perf_counter() + 5
@@ -42,11 +48,26 @@ async def main(output: Path):
             first_page_ms = (time.perf_counter() - started) * 1000
             await pilot.pause(0.4)
             app.save_screenshot("demo.svg", path=output)
+            await pilot.press("down", "e")
+            await pilot.pause(0.2)
+            app.save_screenshot("conversations.svg", path=output)
+            await pilot.press("g")
             await pilot.press("enter")
             await pilot.pause(0.2)
             assert isinstance(app.screen, ReaderScreen)
-            await pilot.press("escape", "f")
+            app.save_screenshot("reader.svg", path=output)
+            await pilot.press("r")
             await pilot.pause(0.1)
+            app.save_screenshot("reply.svg", path=output)
+            await pilot.press("escape", "escape", "a")
+            await pilot.pause(0.1)
+            await pilot.press("R")
+            await pilot.pause(0.3)
+            app.save_screenshot("accounts.svg", path=output)
+            await pilot.press("ctrl+t")
+            await pilot.pause(0.3)
+            app.save_screenshot("diagnostics.svg", path=output)
+            await pilot.press("escape", "escape", "f")
             app.save_screenshot("picker.svg", path=output)
             await pilot.press("escape", "c")
             await pilot.press(*"friend@example.com", "tab", "tab", *"Hello from kwikmeel", "tab")
@@ -60,14 +81,54 @@ async def main(output: Path):
             await pilot.press("ctrl+p")
             await pilot.pause(0.2)
             app.save_screenshot("compose.svg", path=output)
-            await pilot.press("escape")
+            await pilot.press("ctrl+x")
+            app.save_screenshot("confirm.svg", path=output)
+            await pilot.press("escape", "escape")
+
+        narrow = MailApp(
+            [
+                AccountSession(
+                    "personal",
+                    "Personal demo",
+                    DemoBackend(),
+                    DraftStore(Path(tmp) / "narrow.json"),
+                )
+            ],
+            "personal",
+        )
+        async with narrow.run_test(size=(80, 30)) as pilot:
+            await pilot.pause(0.4)
+            narrow.save_screenshot("narrow.svg", path=output)
+            await pilot.press("a", "R")
+            await pilot.pause(0.2)
+            narrow.save_screenshot("narrow-accounts.svg", path=output)
+            await pilot.press("ctrl+e")
+            await pilot.pause(0.1)
+            narrow.save_screenshot("narrow-compose.svg", path=output)
+            await pilot.press("ctrl+x")
+            narrow.save_screenshot("narrow-confirm.svg", path=output)
+            await pilot.press("escape", "escape", "escape")
+
+        class OfflineDemo(DemoBackend):
+            def folders(self):
+                raise OSError("Demo server unavailable")
+
+        offline = MailApp(
+            [
+                AccountSession(
+                    "offline", "Offline demo", OfflineDemo(), DraftStore(Path(tmp) / "offline.json")
+                )
+            ],
+            "offline",
+        )
+        async with offline.run_test(size=(100, 35)) as pilot:
+            await pilot.pause(0.4)
+            offline.save_screenshot("connection-error.svg", path=output)
+            await pilot.press("a")
+            offline.save_screenshot("account-error.svg", path=output)
     report = {
-        "fuzzy_headers": len(choices),
-        "fuzzy_samples": len(samples),
-        "fuzzy_median_ms": round(statistics.median(samples), 2),
-        "fuzzy_p95_ms": round(sorted(samples)[int(len(samples) * 0.95) - 1], 2),
         "demo_first_100_headers_ms": round(first_page_ms, 2),
-        "note": "Local demo/headless measurements; excludes real network latency.",
+        "note": "Local demo/headless run. Use scripts/benchmark.py for repeated timings.",
     }
     (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
