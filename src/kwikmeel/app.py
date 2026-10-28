@@ -62,7 +62,9 @@ class MailApp(App):
         self.thread_rows = ()
         self.grouping = True
         self.expanded: set[str] = set()
-        self.validity = self.next_end = self.total = self.result_total = 0
+        self.validity = self.next_end = self.result_total = 0
+        self.total: int | None = None
+        self.mailbox_error = ""
         self.unread: int | None = None
         self.server_query = self.filter_query = ""
         self.search_mode = "local"
@@ -173,6 +175,8 @@ class MailApp(App):
         self.loading = True
         selected_uid = self.selected().uid if more and self.selected() else None
         if not more:
+            self.total = self.unread = None
+            self.mailbox_error = ""
             self.headers = []
             self.filtered_headers = []
             self.thread_rows = ()
@@ -236,6 +240,11 @@ class MailApp(App):
                 await self.preview.clear_body("No messages match." if query else "Inbox zero.")
         except Exception as error:
             if self.current(ticket):
+                self.mailbox_error = f"Mailbox unavailable: {error}"
+                await self.preview.clear_body(self.mailbox_error)
+                if not self.current(ticket):
+                    return
+                self.render_rows()
                 self.status(f"Connection failed: {error}  ·  R to retry")
                 self.notify(str(error), title="Mail error", severity="error", timeout=8)
         finally:
@@ -337,13 +346,20 @@ class MailApp(App):
         unread = str(self.unread) if self.unread is not None else "unknown"
         grouping = " · grouped loaded" if self.grouping else ""
         self.info_widget.update(
-            f" {result}{len(self.headers)} loaded · {self.total} total · {unread} unread"
+            f" {result}{len(self.headers)} loaded · "
+            f"{self.total if self.total is not None else 'unknown'} total · {unread} unread"
             + grouping
             + (" · L older" if self.next_end else "")
         )
         if not self.filtered_headers and not self.loading:
             self.invalidate_selection()
-            text = "No messages match." if self.filter_query or self.server_query else "Inbox zero."
+            text = self.mailbox_error or (
+                "No messages match."
+                if self.filter_query or self.server_query
+                else "Inbox zero."
+                if self.total is not None
+                else "Mailbox not loaded."
+            )
             self.clear_preview(self.ticket("preview"), text)
 
     @work(group="clear-preview", exclusive=True)
@@ -435,7 +451,8 @@ class MailApp(App):
             self.active_key = key
             self.folder_names = []
             self.folder_list.clear_options()
-            self.validity = self.next_end = self.total = self.result_total = 0
+            self.validity = self.next_end = self.result_total = 0
+            self.total = None
             self.unread = None
             self.switch_folder(self.session.account.inbox)
 

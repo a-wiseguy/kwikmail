@@ -585,3 +585,21 @@ async def test_reader_date_uses_local_timezone(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         time.tzset()
+
+
+async def test_failed_mailbox_shows_unknown_total_and_preserves_error_preview(tmp_path):
+    class OfflineBackend(DemoBackend):
+        def folders(self):
+            raise OSError("Server unavailable")
+
+    app = make_app(tmp_path, OfflineBackend())
+    async with app.run_test(size=(100, 35)) as pilot:
+        await settled(pilot)
+        assert "unknown total" in str(app.info_widget.render())
+        assert "unknown unread" in str(app.info_widget.render())
+        assert "inbox unknown" in str(app.topbar_widget.render())
+        assert "Mailbox unavailable" in str(app.preview.query_one(Static).render())
+        app.render_rows()
+        await settled(pilot)
+        assert "Mailbox unavailable" in str(app.preview.query_one(Static).render())
+        assert "Inbox zero" not in str(app.preview.query_one(Static).render())
