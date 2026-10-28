@@ -60,6 +60,7 @@ class MailApp(App):
         self.headers: list[MailHeader] = []
         self._group_source: tuple[MailHeader, ...] = ()
         self._groups: tuple[Conversation, ...] = ()
+        self._group_by_uid: dict[int, Conversation] = {}
         self.filtered_headers: list[MailHeader] = []
         self.thread_rows = ()
         self.grouping = True
@@ -263,6 +264,9 @@ class MailApp(App):
         source = tuple(self.headers)
         if source != self._group_source:
             self._groups = group_threads(source)
+            self._group_by_uid = {
+                header.uid: group for group in self._groups for header in group.members
+            }
             self._group_source = source
         return self._groups
 
@@ -292,11 +296,14 @@ class MailApp(App):
                 def relevance(header):
                     return rank.get(header.uid, unmatched)
 
+                matched_groups = {}
+                for header in matched_headers:
+                    group = self._group_by_uid[header.uid]
+                    matched_groups.setdefault(group.key, group)
                 groups = tuple(
                     replace(group, members=tuple(sorted(group.members, key=relevance)))
-                    for group in groups
+                    for group in matched_groups.values()
                 )
-                groups = tuple(sorted(groups, key=lambda group: relevance(group.members[0])))
             for group in groups:
                 if selected_uid and any(h.uid == selected_uid for h in group.members):
                     if group.members[0].uid != selected_uid:
