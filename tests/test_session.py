@@ -5,11 +5,11 @@ from dataclasses import replace
 
 import pytest
 
-from kwikmeel.config import Account
-from kwikmeel.demo import DemoBackend
-from kwikmeel.models import Draft, MessageRef
-from kwikmeel.session import AccountSession
-from kwikmeel.storage import DraftStore
+from kwikmail.config import Account
+from kwikmail.demo import DemoBackend
+from kwikmail.models import Draft, MessageRef
+from kwikmail.session import AccountSession
+from kwikmail.storage import DraftStore
 
 
 def session(tmp_path, key="personal", backend=None):

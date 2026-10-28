@@ -3,7 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from kwikmeel.config import load_account, load_settings
+from kwikmail.config import load_account, load_settings
 
 FIELDS = 'host="mail.example.com"\nusername="you"\naddress="you@example.com"\n'
 

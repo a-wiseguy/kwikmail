@@ -34,8 +34,8 @@ class AccountSession:
         self._account = backend.account
         self._status = SessionStatus()
         self._stats: dict[str, MailboxStats] = {}
-        self._imap_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kwikmeel-imap")
-        self._smtp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kwikmeel-smtp")
+        self._imap_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kwikmail-imap")
+        self._smtp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kwikmail-smtp")
         self._imap_lock = asyncio.Lock()
         self._smtp_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()

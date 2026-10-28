@@ -14,9 +14,9 @@ import trustme
 from aiosmtpd.controller import Controller
 from aiosmtpd.smtp import AuthResult
 
-from kwikmeel.backend import HEADER_FIELD, ImapBackend, MailboxChanged
-from kwikmeel.config import Account
-from kwikmeel.models import Draft
+from kwikmail.backend import HEADER_FIELD, ImapBackend, MailboxChanged
+from kwikmail.config import Account
+from kwikmail.models import Draft
 
 RAW = (
     b"From: Mira <mira@example.com>\r\nTo: you@example.com\r\n"
@@ -157,7 +157,7 @@ def imap_server(tls):
 
 def test_imap_tls_headers_paging_peek_search_seen_append(imap_server, monkeypatch):
     port, ca_file, commands, appended, state = imap_server
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     backend = ImapBackend(
         Account(
             "localhost",
@@ -232,7 +232,7 @@ def test_smtp_tls_auth_mime_and_partial_refusal(tls, monkeypatch, security):
         **kwargs,
     )
     controller.start()
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     account = Account(
         "localhost",
         "you@example.com",

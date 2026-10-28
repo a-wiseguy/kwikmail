@@ -1,8 +1,0 @@
-{
-  "fuzzy_headers": 10000,
-  "fuzzy_samples": 30,
-  "fuzzy_median_ms": 43.99,
-  "fuzzy_p95_ms": 51.83,
-  "demo_first_100_headers_ms": 115.74,
-  "note": "Local demo/headless measurements; excludes real network latency."
-}

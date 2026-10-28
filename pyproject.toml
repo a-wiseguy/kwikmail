@@ -3,10 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "kwikmeel"
+name = "kwikmail"
 version = "1.0.0"
 description = "A keyboard-first IMAP mail client for your terminal"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
 dependencies = [
   "textual>=6.0,<7",
   "imapclient>=3.0,<4",
@@ -15,8 +18,12 @@ dependencies = [
   "markdown-it-py>=4,<5",
 ]
 
+[project.urls]
+Homepage = "https://github.com/a-wiseguy/kwikmail"
+Issues = "https://github.com/a-wiseguy/kwikmail/issues"
+
 [project.scripts]
-kwikmeel = "kwikmeel.__main__:main"
+kwikmail = "kwikmail.__main__:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=1", "ruff>=0.14", "aiosmtpd>=1.4", "trustme>=1.2"]

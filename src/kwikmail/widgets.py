@@ -91,7 +91,7 @@ class ReaderScreen(Screen):
         self.ref = ref
 
     def compose(self) -> ComposeResult:
-        yield Static(" KWIKMEEL  /  READER", classes="topbar")
+        yield Static(" KWIKMAIL  /  READER", classes="topbar")
         yield MailView(id="reader-view")
         yield Static(
             " esc  back    ↑/↓  scroll    r  reply    a  reply all    w  forward"

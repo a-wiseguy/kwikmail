@@ -38,7 +38,7 @@ class Composer(Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f" KWIKMEEL  /  COMPOSE  ·  {self.session.label} <{self.session.account.address}>",
+            f" KWIKMAIL  /  COMPOSE  ·  {self.session.label} <{self.session.account.address}>",
             classes="topbar",
             markup=False,
         )

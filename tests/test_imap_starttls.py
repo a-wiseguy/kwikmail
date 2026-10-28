@@ -5,8 +5,8 @@ import threading
 import pytest
 from test_protocols import tls as tls
 
-from kwikmeel.backend import ImapBackend
-from kwikmeel.config import Account
+from kwikmail.backend import ImapBackend
+from kwikmail.config import Account
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def account_for(server, trusted=True):
 def test_imap_starttls_checks_certificate_before_authentication(
     imap_starttls_server, monkeypatch, trusted
 ):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     backend = ImapBackend(account_for(imap_starttls_server, trusted))
     result = backend.check_imap()
     assert result.ok is trusted
@@ -84,7 +84,7 @@ def test_imap_starttls_checks_certificate_before_authentication(
 def test_imap_starttls_cleanup_preserves_original_certificate_error(
     imap_starttls_server, monkeypatch
 ):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     backend = ImapBackend(account_for(imap_starttls_server, trusted=False))
     with pytest.raises(ssl.SSLCertVerificationError):
         backend.connection()

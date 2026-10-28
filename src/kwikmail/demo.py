@@ -16,7 +16,7 @@ from .models import (
 
 WELCOME = """# A quieter place for your inbox
 
-Welcome to **kwikmeel**. Your hands can stay on the keyboard.
+Welcome to **kwikmail**. Your hands can stay on the keyboard.
 
 ## Make yourself at home
 
@@ -68,8 +68,8 @@ class DemoBackend:
                 rows.append(
                     MailHeader(
                         size - index,
-                        "Welcome to kwikmeel" if index == 0 else subject,
-                        "Kwikmeel <hello@kwikmeel.local>"
+                        "Welcome to kwikmail" if index == 0 else subject,
+                        "Kwikmail <hello@kwikmail.local>"
                         if index == 0
                         else f"{name} <{name.lower().split()[0]}@example.com>",
                         now - timedelta(minutes=index * 37),

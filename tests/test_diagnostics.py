@@ -8,10 +8,10 @@ from aiosmtpd.smtp import AuthResult
 from test_protocols import imap_server as imap_server
 from test_protocols import tls as tls
 
-from kwikmeel.backend import ImapBackend, MailboxChanged
-from kwikmeel.config import Account
-from kwikmeel.session import AccountSession
-from kwikmeel.storage import DraftStore
+from kwikmail.backend import ImapBackend, MailboxChanged
+from kwikmail.config import Account
+from kwikmail.session import AccountSession
+from kwikmail.storage import DraftStore
 
 
 def local_account(imap_server):
@@ -22,7 +22,7 @@ def local_account(imap_server):
 
 
 def test_stats_use_unseen_and_count_existing_uid_range(imap_server, monkeypatch):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     _, _, commands, _, state = imap_server
     backend = ImapBackend(local_account(imap_server))
     try:
@@ -54,7 +54,7 @@ def test_stats_use_unseen_and_count_existing_uid_range(imap_server, monkeypatch)
 async def test_failed_and_reset_checks_preserve_successful_watermark(
     imap_server, monkeypatch, tmp_path
 ):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     _, _, _, _, state = imap_server
     session = AccountSession(
         "home", "Home", ImapBackend(local_account(imap_server)), DraftStore(tmp_path / "draft.json")
@@ -122,7 +122,7 @@ def smtp_server(tls, request):
 async def test_checks_authenticate_both_protocols_without_data(
     imap_server, smtp_server, monkeypatch, tmp_path
 ):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     smtp_port, _, security, smtp_state = smtp_server
     _, _, commands, _, imap_state = imap_server
     account = replace(local_account(imap_server), smtp_port=smtp_port, smtp_security=security)
@@ -148,7 +148,7 @@ async def test_checks_authenticate_both_protocols_without_data(
 
 
 def test_connection_checks_reject_untrusted_certificates(imap_server, smtp_server, monkeypatch):
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "test-only")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
     smtp_port, _, security, smtp_state = smtp_server
     account = replace(
         local_account(imap_server), smtp_port=smtp_port, smtp_security=security, ca_file=None
@@ -168,7 +168,7 @@ def test_submission_remains_accepted_when_smtp_close_fails(monkeypatch):
         def close(self):
             raise ssl.SSLError("close failed after acceptance")
 
-    from kwikmeel.models import Draft
+    from kwikmail.models import Draft
 
     backend = ImapBackend(Account("example.com", "you", "you@example.com"))
     monkeypatch.setattr(backend, "_smtp_connection", lambda: SMTP())

@@ -10,11 +10,11 @@ from pathlib import Path
 
 
 def config_path() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "kwikmeel/config.toml"
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "kwikmail/config.toml"
 
 
 def state_path() -> Path:
-    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "kwikmeel"
+    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "kwikmail"
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class Account:
     smtp_port: int = 587
     smtp_security: str = "starttls"
     smtp_username: str = ""
-    password_env: str = "KWIKMEEL_PASSWORD"
+    password_env: str = "KWIKMAIL_PASSWORD"
     smtp_password_env: str = ""
     password_command: tuple[str, ...] = ()
     sent_folder: str = "Sent"

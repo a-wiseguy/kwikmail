@@ -240,11 +240,11 @@ async def suite(size, delays):
     from rapidfuzz import fuzz, process
     from textual.widgets import Markdown, Static
 
-    from kwikmeel.app import MailApp
-    from kwikmeel.backend import ImapBackend
-    from kwikmeel.config import Account
-    from kwikmeel.mail import parse_body, parse_header
-    from kwikmeel.storage import DraftStore
+    from kwikmail.app import MailApp
+    from kwikmail.backend import ImapBackend
+    from kwikmail.config import Account
+    from kwikmail.mail import parse_body, parse_header
+    from kwikmail.storage import DraftStore
 
     class Backend(ImapBackend):
         def connection(self):
@@ -262,9 +262,9 @@ async def suite(size, delays):
     with tempfile.TemporaryDirectory() as tmp:
         drafts = DraftStore(Path(tmp) / "draft.json")
         session = None
-        if importlib.util.find_spec("kwikmeel.session") is not None:
-            from kwikmeel.models import MessageRef
-            from kwikmeel.session import AccountSession
+        if importlib.util.find_spec("kwikmail.session") is not None:
+            from kwikmail.models import MessageRef
+            from kwikmail.session import AccountSession
 
             session = AccountSession("fixture", "Fixture", backend, drafts)
             app = MailApp([session], "fixture")
@@ -543,14 +543,14 @@ async def suite(size, delays):
 
 
 async def integrated_suite(size):
-    from kwikmeel.app import MailApp
-    from kwikmeel.backend import ImapBackend
-    from kwikmeel.config import Account
-    from kwikmeel.mail import parse_header
-    from kwikmeel.models import MessageRef
-    from kwikmeel.session import AccountSession
-    from kwikmeel.storage import DraftStore
-    from kwikmeel.threads import group_threads
+    from kwikmail.app import MailApp
+    from kwikmail.backend import ImapBackend
+    from kwikmail.config import Account
+    from kwikmail.mail import parse_header
+    from kwikmail.models import MessageRef
+    from kwikmail.session import AccountSession
+    from kwikmail.storage import DraftStore
+    from kwikmail.threads import group_threads
 
     class Backend(ImapBackend):
         def __init__(self, client, address):
@@ -799,9 +799,9 @@ def main(argv=None):
     if args.worker:
         checkout = args.checkout[0].resolve()
         sys.path.insert(0, str(checkout / "src"))
-        import kwikmeel
+        import kwikmail
 
-        assert Path(kwikmeel.__file__).resolve().is_relative_to(checkout / "src")
+        assert Path(kwikmail.__file__).resolve().is_relative_to(checkout / "src")
         environment = metadata(checkout)
         profiler = cProfile.Profile() if args.profile else None
         if profiler:

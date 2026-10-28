@@ -4,8 +4,8 @@ from random import Random
 
 import pytest
 
-from kwikmeel.models import MailHeader
-from kwikmeel.threads import Conversation, flatten_threads, group_threads
+from kwikmail.models import MailHeader
+from kwikmail.threads import Conversation, flatten_threads, group_threads
 
 
 def header(uid, message_id="", references=(), in_reply_to="", seen=False):

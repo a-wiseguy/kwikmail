@@ -9,11 +9,11 @@ smtp_port = 587
 smtp_security = "starttls"
 # smtp_host = "mail.example.com"  # Defaults to host
 # smtp_username = "you@example.com"  # Defaults to username
-password_env = "KWIKMEEL_PASSWORD"
+password_env = "KWIKMAIL_PASSWORD"
 # Or use a password manager. Commands are executed directly, without a shell.
 # password_command = ["pass", "show", "mail/example"]
-# password_command = ["security", "find-generic-password", "-s", "kwikmeel", "-w"]
-# smtp_password_env = "KWIKMEEL_SMTP_PASSWORD"  # Only for a separate SMTP password
+# password_command = ["security", "find-generic-password", "-s", "kwikmail", "-w"]
+# smtp_password_env = "KWIKMAIL_SMTP_PASSWORD"  # Only for a separate SMTP password
 sent_folder = "Sent"  # Set to "" if your server already saves sent mail
 inbox = "INBOX"
 page_size = 100

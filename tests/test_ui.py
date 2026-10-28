@@ -3,12 +3,12 @@ import time
 
 from textual.widgets import Input, Static, TextArea
 
-from kwikmeel.app import MailApp
-from kwikmeel.composer import Composer
-from kwikmeel.demo import DemoBackend
-from kwikmeel.session import AccountSession
-from kwikmeel.storage import DraftStore
-from kwikmeel.widgets import ConfirmSend, MailView, Picker, ReaderScreen
+from kwikmail.app import MailApp
+from kwikmail.composer import Composer
+from kwikmail.demo import DemoBackend
+from kwikmail.session import AccountSession
+from kwikmail.storage import DraftStore
+from kwikmail.widgets import ConfirmSend, MailView, Picker, ReaderScreen
 
 
 def make_app(tmp_path, backend=None):
@@ -155,7 +155,7 @@ async def test_compact_layout_and_preview_toggle(tmp_path):
 
 
 async def test_reply_recovery_and_existing_draft_choices(tmp_path):
-    from kwikmeel.models import Draft
+    from kwikmail.models import Draft
 
     app = make_app(tmp_path)
     session = app.session
@@ -236,7 +236,7 @@ async def test_narrow_arrows_skip_hidden_panes(tmp_path):
 
 
 def two_accounts(tmp_path, first=None, second=None):
-    from kwikmeel.config import Account
+    from kwikmail.config import Account
 
     return [
         AccountSession(
@@ -255,7 +255,7 @@ def two_accounts(tmp_path, first=None, second=None):
 
 
 async def test_accounts_stats_diagnostics_and_confirmed_test_email(tmp_path):
-    from kwikmeel.widgets import AccountPicker
+    from kwikmail.widgets import AccountPicker
 
     sessions = two_accounts(tmp_path)
     app = MailApp(sessions, "personal")
@@ -299,7 +299,7 @@ async def test_accounts_stats_diagnostics_and_confirmed_test_email(tmp_path):
 
 
 async def test_slow_account_refresh_does_not_block_switching(tmp_path):
-    from kwikmeel.widgets import AccountPicker
+    from kwikmail.widgets import AccountPicker
 
     class SlowStats(DemoBackend):
         def stats(self, *args):
@@ -377,7 +377,7 @@ async def test_composer_keeps_its_account_after_active_account_switch(tmp_path):
 async def test_account_switch_discards_late_success_error_and_loading_cleanup(tmp_path):
     from dataclasses import replace
 
-    from kwikmeel.models import MailboxSnapshot
+    from kwikmail.models import MailboxSnapshot
 
     class DelayedSession(AccountSession):
         async def mailbox(self, *args):
@@ -433,7 +433,7 @@ async def test_account_switch_discards_late_success_error_and_loading_cleanup(tm
 async def test_thread_search_paging_merge_and_selected_uid(tmp_path):
     from dataclasses import replace
 
-    from kwikmeel.models import MailHeader
+    from kwikmail.models import MailHeader
 
     backend = DemoBackend(count=12)
     rows = backend.items["INBOX"]
@@ -478,7 +478,7 @@ async def test_thread_search_paging_merge_and_selected_uid(tmp_path):
 async def test_old_preview_and_reader_cannot_mount_after_account_roundtrip(tmp_path):
     from dataclasses import replace
 
-    from kwikmeel.models import MessageRef
+    from kwikmail.models import MessageRef
 
     class DelayedBodySession(AccountSession):
         async def body(self, ref):
@@ -533,7 +533,7 @@ async def test_old_preview_and_reader_cannot_mount_after_account_roundtrip(tmp_p
 
 
 async def test_failed_inbox_refresh_preserves_counts_and_marks_picker_stale(tmp_path):
-    from kwikmeel.widgets import AccountPicker
+    from kwikmail.widgets import AccountPicker
 
     class FailingStats(DemoBackend):
         fail = False
@@ -600,7 +600,7 @@ async def test_account_details_show_protocol_endpoints_and_sender(tmp_path):
 
 
 async def test_reader_date_uses_local_timezone(tmp_path, monkeypatch):
-    from kwikmeel.models import MailBody
+    from kwikmail.models import MailBody
 
     monkeypatch.setenv("TZ", "Europe/Amsterdam")
     time.tzset()

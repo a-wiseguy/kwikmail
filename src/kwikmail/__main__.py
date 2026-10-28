@@ -8,7 +8,7 @@ from .config import Account, AccountEntry, Settings, config_path, load_settings,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Kwikmeel · keyboard-first terminal mail")
+    parser = argparse.ArgumentParser(description="Kwikmail · keyboard-first terminal mail")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
         "--demo", action="store_true", help="Explore two sample accounts, no server needed"
@@ -59,7 +59,7 @@ def main() -> None:
         parser.exit(
             2,
             f"No config at {args.config}\nCopy config.example.toml there and edit it, "
-            "or try: kwikmeel --demo\n",
+            "or try: kwikmail --demo\n",
         )
     except (ValueError, OSError) as error:
         parser.exit(2, f"Configuration error: {error}\n")
@@ -81,7 +81,7 @@ def main() -> None:
             parser.exit(1)
         return
     if not sys.stdin.isatty():
-        parser.exit(2, "Run kwikmeel in an interactive terminal, or use --check.\n")
+        parser.exit(2, "Run kwikmail in an interactive terminal, or use --check.\n")
     from .app import MailApp
 
     MailApp(sessions, selected).run()

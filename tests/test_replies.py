@@ -5,8 +5,8 @@ from email.parser import BytesParser
 
 import pytest
 
-from kwikmeel.config import Account
-from kwikmeel.mail import (
+from kwikmail.config import Account
+from kwikmail.mail import (
     addresses,
     build_message,
     make_response,
@@ -14,9 +14,9 @@ from kwikmeel.mail import (
     parse_body,
     parse_header,
 )
-from kwikmeel.models import Draft, MailBody, MailHeader
-from kwikmeel.storage import DraftStore
-from kwikmeel.threads import group_threads
+from kwikmail.models import Draft, MailBody, MailHeader
+from kwikmail.storage import DraftStore
+from kwikmail.threads import group_threads
 
 OWN = frozenset({"me@example.com", "alias@example.com"})
 ACCOUNT = Account("localhost", "me", "me@example.com", "Me")

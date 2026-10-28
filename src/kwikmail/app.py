@@ -27,7 +27,7 @@ class ViewTicket:
 
 
 class MailApp(App):
-    TITLE = "kwikmeel"
+    TITLE = "kwikmail"
     CSS_PATH = "app.tcss"
     ENABLE_COMMAND_PALETTE = False
     BINDINGS = [
@@ -158,7 +158,7 @@ class MailApp(App):
         stats = "inbox unknown" if inbox is None else f"inbox {inbox.total} · unread {inbox.unread}"
         stale = " · stale" if state.stats_stale else ""
         self.topbar_widget.update(
-            f" KWIKMEEL  /  {session.label} <{session.account.address}>  ·  "
+            f" KWIKMAIL  /  {session.label} <{session.account.address}>  ·  "
             f"{state.connection}  ·  {stats}{stale}"
         )
 
@@ -598,15 +598,15 @@ class MailApp(App):
             session,
             Draft(
                 to=session.account.address,
-                subject="Kwikmeel connection test",
-                body="This is a test email sent from Kwikmeel. "
+                subject="Kwikmail connection test",
+                body="This is a test email sent from Kwikmail. "
                 "SMTP acceptance does not confirm delivery.",
             ),
         )
 
     def action_help(self) -> None:
         self.push_screen(
-            ReaderScreen(MailBody(0, "Keyboard reference", "kwikmeel", "you", "", HELP))
+            ReaderScreen(MailBody(0, "Keyboard reference", "kwikmail", "you", "", HELP))
         )
 
     def action_commands(self) -> None:

@@ -3,10 +3,10 @@ from email.message import EmailMessage
 
 import pytest
 
-from kwikmeel.config import Account, load_account
-from kwikmeel.mail import build_message, parse_body, parse_header
-from kwikmeel.models import Draft
-from kwikmeel.storage import DraftStore
+from kwikmail.config import Account, load_account
+from kwikmail.mail import build_message, parse_body, parse_header
+from kwikmail.models import Draft
+from kwikmail.storage import DraftStore
 
 
 def test_mime_alternatives_and_terminal_input():
@@ -81,5 +81,5 @@ def test_config_validation_and_password(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="imap_security"):
         load_account(path)
     path.write_text(base)
-    monkeypatch.setenv("KWIKMEEL_PASSWORD", "private-test-password")
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "private-test-password")
     assert load_account(path).password() == "private-test-password"

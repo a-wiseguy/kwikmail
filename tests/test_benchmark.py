@@ -47,7 +47,7 @@ def test_rejects_too_few_samples_and_tracked_output():
 
 
 async def test_common_suite_checks_rendered_results_and_real_cache_work(monkeypatch):
-    from kwikmeel.widgets import MailView
+    from kwikmail.widgets import MailView
 
     clear_body = MailView.clear_body
 
@@ -89,8 +89,8 @@ async def test_common_suite_checks_rendered_results_and_real_cache_work(monkeypa
 
 
 def test_conversation_fixture_has_real_ancestry_and_separate_search_match():
-    from kwikmeel.mail import parse_header
-    from kwikmeel.threads import group_threads
+    from kwikmail.mail import parse_header
+    from kwikmail.threads import group_threads
 
     headers = [
         parse_header(uid, benchmark.thread_header(uid, 100), ()) for uid in range(100, 0, -1)

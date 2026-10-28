@@ -88,7 +88,7 @@ Sequence-based paging may skip or repeat a position after concurrent expunges.
 The UI deduplicates UIDs; refreshing establishes a new page. Search results collect
 all matching UIDs before fetching a bounded header page. Large messages are partial
 MIME documents after the wire limit, so attachments or a later text part can be absent.
-These limitations are visible in the README and truncation notice.
+These limitations are described in [usage](usage.md) and the truncation notice.
 
 Local TLS test servers verify client protocol usage, but are not a substitute for
 acceptance testing against the user's own Dovecot/Postfix configuration.

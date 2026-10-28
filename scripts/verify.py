@@ -9,12 +9,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from kwikmeel.app import MailApp
-from kwikmeel.config import Account
-from kwikmeel.demo import DemoBackend
-from kwikmeel.session import AccountSession
-from kwikmeel.storage import DraftStore
-from kwikmeel.widgets import ReaderScreen
+from kwikmail.app import MailApp
+from kwikmail.config import Account
+from kwikmail.demo import DemoBackend
+from kwikmail.session import AccountSession
+from kwikmail.storage import DraftStore
+from kwikmail.widgets import ReaderScreen
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,7 +70,7 @@ async def main(output: Path):
             await pilot.press("escape", "escape", "f")
             app.save_screenshot("picker.svg", path=output)
             await pilot.press("escape", "c")
-            await pilot.press(*"friend@example.com", "tab", "tab", *"Hello from kwikmeel", "tab")
+            await pilot.press(*"friend@example.com", "tab", "tab", *"Hello from kwikmail", "tab")
             from textual.widgets import TextArea
 
             app.screen.query_one(TextArea).load_text(
