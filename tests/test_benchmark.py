@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import subprocess
@@ -45,7 +46,17 @@ def test_rejects_too_few_samples_and_tracked_output():
         benchmark.ignored_output(Path(__file__).resolve().parents[1] / "docs/results")
 
 
-async def test_common_suite_checks_rendered_results_and_real_cache_work():
+async def test_common_suite_checks_rendered_results_and_real_cache_work(monkeypatch):
+    from kwikmeel.widgets import MailView
+
+    clear_body = MailView.clear_body
+
+    async def delayed_clear(view, text):
+        if text == "No messages match.":
+            await asyncio.sleep(0.05)
+        await clear_body(view, text)
+
+    monkeypatch.setattr(MailView, "clear_body", delayed_clear)
     results = await benchmark.suite(100, [50])
     assert results
     assert [result for result in results if result["status"] != "ok"] == []
@@ -54,6 +65,11 @@ async def test_common_suite_checks_rendered_results_and_real_cache_work():
     assert by_name["body.cold_to_frame"]["counts"]["bodies"] == 1
     assert by_name["body.cached_to_frame"]["counts"] == {}
     assert by_name["body.cache_eviction"]["work"]["evicted_refetches"] == 1
+    assert all(
+        result["work"]["pending_preview_workers"] == 0
+        for result in results
+        if result["name"] == "body.render"
+    )
     navigation = by_name["network.navigation_to_frame"]
     assert navigation["work"]["latest_preview_verified"]
     assert isinstance(navigation["work"]["body_pending_at_dispatch"], bool)

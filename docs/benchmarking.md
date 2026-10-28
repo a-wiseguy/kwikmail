@@ -23,13 +23,13 @@ Output must be inside a Git-ignored directory. The script verifies the ignore ru
 | `fuzzy.input_to_frame` | Input value change, application debounce, scoring, table construction and viewport refresh. |
 | `fuzzy.render` | Scoring, table construction and refresh with the current query. Compare with extraction and the full input path. |
 | `mime.parse` | Parse fixed plain, HTML, nested multipart and oversized messages. Verify marker text, removed scripts, attachment names and truncation. |
-| `body.render` | Existing Markdown body through completed viewport refresh. Verify Markdown content, visible marker text, and rendered block count. |
+| `body.render` | Existing Markdown body through completed viewport refresh. Requires zero pending preview workers. Verifies Markdown content, visible marker text, and rendered block count. |
 | `body.cold_to_frame` | Real backend fetch, MIME parsing and rendering. Requires one transport body fetch. |
 | `body.cached_to_frame` | Same body through rendering. Requires zero additional transport commands. |
 | `body.cache_eviction` | 25 distinct bodies followed by a refetch of the first. Checks the application cache eviction contract. |
 | `network.navigation_to_frame` | Three real down-arrow key events through cursor refresh during a body request. Records whether the request remained pending, final selection, final preview correctness, and heartbeat gaps until the preview settles. |
 
-Default header sizes are 100, 1,000 and 10,000. Fixed queries cover exact subject, typo, sender, diacritics and no-match results. The full table is not injected into the rendered screen before filtering, so large cases measure filtered rendering without an unrelated 10,000-row initial render. Fixture creation and header preloading happen outside fuzzy measurements. Empty-query behavior and broad-result tie ordering need separate ranking tests.
+Default header sizes are 100, 1,000 and 10,000. Fixed queries cover exact subject, typo, sender, diacritics and no-match results. The full table is not injected into the rendered screen before filtering, so large cases measure filtered rendering without an unrelated 10,000-row initial render. Fixture creation and header preloading happen outside fuzzy measurements. Before MIME and body-render measurements, the script invalidates previews, drains transport work, waits for preview-clear workers, and completes an untimed frame. This prevents no-match search cleanup from overlapping the first body render. Empty-query behavior and broad-result tie ordering need separate ranking tests.
 
 `--delay-ms 0 50 300` sets body delays in milliseconds. A heartbeat requests a tick every 5 ms. Its maximum observed gap includes event-loop scheduling and benchmark driver work. Textual's key driver waits for idle and completed animations after each key. These waits contribute to the measured input latency. A short simulated request may finish before the third key; inspect both pending flags. Heartbeat and CPU numbers alone do not identify a bottleneck.
 

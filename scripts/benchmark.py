@@ -385,6 +385,14 @@ async def suite(size, delays):
 
                 await record.measure("fuzzy.render", render, size=size, query=query)
 
+            invalidate_preview()
+            await mail_call("drain")
+            await until(
+                lambda: (
+                    not any(worker.group in ("preview", "clear-preview") for worker in app.workers)
+                )
+            )
+            await frame(app)
             for kind, raw in client.payloads.items():
 
                 async def parse(raw=raw, kind=kind):
@@ -403,6 +411,10 @@ async def suite(size, delays):
                 body = parse_body(1, raw)
 
                 async def body_render(body=body):
+                    pending = sum(
+                        worker.group in ("preview", "clear-preview") for worker in app.workers
+                    )
+                    assert pending == 0, "body rendering overlaps pending preview work"
                     await app.preview.show_body(body)
                     await frame(app)
                     assert "body-marker" in app.preview.query_one(Markdown)._markdown
@@ -410,6 +422,7 @@ async def suite(size, delays):
                     return {
                         "markdown_chars": len(body.markdown),
                         "rendered_blocks": len(app.preview.query_one(Markdown).children),
+                        "pending_preview_workers": pending,
                     }
 
                 await record.measure("body.render", body_render, kind=kind, size=size)
