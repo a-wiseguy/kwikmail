@@ -866,7 +866,7 @@ def main(argv=None):
             b"".join(thread_header(uid, size) for size in args.sizes for uid in range(1, size + 1))
         ),
         "harness_sha256": digest(Path(__file__).read_bytes()),
-        "sample_order": "round-robin checkout order; a,b,a,b",
+        "sample_order": "round-robin checkout order",
         "unsupported": {
             "legacy_accounts_and_threads": "new-capability scenarios run only on integrated UI",
             "tls": "run separate local TLS protocol tests",

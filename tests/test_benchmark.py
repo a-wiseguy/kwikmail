@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import subprocess
 from pathlib import Path
 
@@ -84,3 +85,28 @@ def test_conversation_fixture_has_real_ancestry_and_separate_search_match():
     assert headers[1].subject == "zqxvplmn"
     assert headers[1].references == ("<fixture-91@fixture.invalid>",)
     assert benchmark.raw_header(99, 100) != benchmark.thread_header(99, 100)
+
+
+def test_report_describes_round_robin_for_three_targets(tmp_path, monkeypatch):
+    checkouts = [tmp_path / name for name in ("initial", "before", "after")]
+    for checkout in checkouts:
+        checkout.mkdir()
+        (checkout / "uv.lock").write_text("fixed dependencies")
+    output = tmp_path / "output"
+    output.mkdir()
+    monkeypatch.setattr(benchmark, "ignored_output", lambda _: output)
+    observed = []
+
+    def worker(command, **kwargs):
+        observed.append(command[command.index("--checkout") + 1])
+        return subprocess.CompletedProcess(command, 0, stdout='{"results": []}', stderr="")
+
+    monkeypatch.setattr(benchmark.subprocess, "run", worker)
+    args = [argument for checkout in checkouts for argument in ("--checkout", str(checkout))]
+    assert benchmark.main([*args, "--sizes", "100", "--delay-ms", "0"]) == 0
+    report = json.loads((output / "benchmark.json").read_text())
+    assert report["sample_order"] == "round-robin checkout order"
+    assert observed == [str(checkout) for checkout in checkouts] * 5
+    assert [[run["target"] for run in target["runs"]] for target in report["targets"]] == [
+        [index] * 5 for index in range(3)
+    ]
