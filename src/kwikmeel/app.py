@@ -14,7 +14,7 @@ from .composer import Composer
 from .mail import make_response, one_line
 from .models import Draft, MailBody, MailHeader, MessageRef
 from .session import AccountSession
-from .threads import flatten_threads, group_threads
+from .threads import Conversation, flatten_threads, group_threads
 from .widgets import HELP, AccountPicker, MailTable, MailView, Picker, ReaderScreen
 
 
@@ -58,6 +58,8 @@ class MailApp(App):
         self.folder = self.session.account.inbox
         self.folder_names: list[str] = []
         self.headers: list[MailHeader] = []
+        self._group_source: tuple[MailHeader, ...] = ()
+        self._groups: tuple[Conversation, ...] = ()
         self.filtered_headers: list[MailHeader] = []
         self.thread_rows = ()
         self.grouping = True
@@ -257,6 +259,13 @@ class MailApp(App):
             return self.filtered_headers[self.table.cursor_row]
         return None
 
+    def conversation_groups(self) -> tuple[Conversation, ...]:
+        source = tuple(self.headers)
+        if source != self._group_source:
+            self._groups = group_threads(source)
+            self._group_source = source
+        return self._groups
+
     def render_rows(self, selected_uid: int | None = None) -> None:
         if selected_uid is None:
             previous = self.selected()
@@ -275,7 +284,7 @@ class MailApp(App):
             matched_headers = [by_uid[uid] for _, _, uid in ranked]
             matches = {header.uid for header in matched_headers}
         if self.grouping:
-            groups = group_threads(self.headers)
+            groups = self.conversation_groups()
             if matches is not None:
                 rank = {header.uid: index for index, header in enumerate(matched_headers)}
                 unmatched = len(rank)
@@ -478,7 +487,7 @@ class MailApp(App):
         row = self.thread_rows[self.table.cursor_row]
         if row.thread_key in self.expanded:
             self.expanded.remove(row.thread_key)
-            group = next(g for g in group_threads(self.headers) if g.key == row.thread_key)
+            group = next(g for g in self.conversation_groups() if g.key == row.thread_key)
             self.render_rows(group.members[0].uid)
         else:
             self.expanded.add(row.thread_key)

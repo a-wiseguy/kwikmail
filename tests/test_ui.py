@@ -318,6 +318,30 @@ async def test_slow_account_refresh_does_not_block_switching(tmp_path):
         assert app.active_key == "personal"
 
 
+async def test_conversation_counts_and_members_refresh_after_header_changes(tmp_path):
+    from dataclasses import replace
+
+    backend = DemoBackend()
+    app = make_app(tmp_path, backend)
+    async with app.run_test(size=(150, 45)) as pilot:
+        await settled(pilot)
+        assert app.thread_rows[0].count == 3 and app.thread_rows[0].unread == 1
+        await pilot.press("enter")
+        await settled(pilot)
+        await pilot.press("escape")
+        assert app.thread_rows[0].unread == 0
+        backend.items["INBOX"][0] = replace(
+            backend.items["INBOX"][0], seen=False, subject="Changed on server"
+        )
+        await pilot.press("R")
+        await settled(pilot)
+        assert app.thread_rows[0].unread == 1
+        assert app.table.get_row_at(0)[2].plain.endswith("Changed on server")
+        await pilot.press("f", *"draft", "enter")
+        await settled(pilot)
+        assert app.table.row_count == 0 and app.thread_rows == ()
+
+
 async def test_composer_keeps_its_account_after_active_account_switch(tmp_path):
     sessions = two_accounts(tmp_path)
     app = MailApp(sessions, "personal")
