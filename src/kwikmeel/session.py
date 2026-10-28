@@ -1,5 +1,3 @@
-"""Account-bound async admission for blocking mail and draft finalization."""
-
 import asyncio
 import smtplib
 import ssl

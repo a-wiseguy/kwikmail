@@ -1,5 +1,3 @@
-"""Blocking mail operations serialized by their owning AccountSession."""
-
 import smtplib
 import ssl
 from collections import OrderedDict

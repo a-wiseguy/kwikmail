@@ -110,8 +110,6 @@ def raw_bodies():
 
 
 class FixtureClient:
-    """IMAPClient-shaped transport; application parsing, paging and cache remain real."""
-
     def __init__(self, size, delay=0):
         self.size = size
         self.headers = {uid: raw_header(uid, size) for uid in range(1, size + 1)}
@@ -195,7 +193,6 @@ async def frame(app):
 
 
 def viewport(app):
-    """Read the composed terminal frame after its refresh has completed."""
     return "\n".join(strip.text for strip in app.screen._compositor.render_strips())
 
 
@@ -533,7 +530,6 @@ async def suite(size, delays):
 
 
 async def integrated_suite(size):
-    """New capabilities have correctness gates, without inventing a legacy baseline."""
     from kwikmeel.app import MailApp
     from kwikmeel.backend import ImapBackend
     from kwikmeel.config import Account

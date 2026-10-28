@@ -1,5 +1,3 @@
-"""Benchmark correctness gates and output safety."""
-
 import importlib.util
 import subprocess
 from pathlib import Path
