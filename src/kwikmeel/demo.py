@@ -151,7 +151,7 @@ class DemoBackend:
             row.subject,
             row.sender,
             self.account.address,
-            row.date.strftime("%a, %d %b %Y %H:%M") if row.date else "",
+            row.date.strftime("%a, %d %b %Y %H:%M %z") if row.date else "",
             content,
             message_id=row.message_id,
             references=row.references,
