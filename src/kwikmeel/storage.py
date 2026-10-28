@@ -17,11 +17,20 @@ class DraftStore:
         if not self.path.exists():
             return Draft()
         data = json.loads(self.path.read_text())
+        fields = {"to", "cc", "subject", "body", "in_reply_to"}
         if not isinstance(data, dict) or any(
-            key not in ("to", "cc", "subject", "body") or not isinstance(value, str)
+            not (
+                key in fields
+                and isinstance(value, str)
+                or key == "references"
+                and isinstance(value, list)
+                and all(isinstance(item, str) for item in value)
+            )
             for key, value in data.items()
         ):
             raise ValueError(f"Invalid draft at {self.path}")
+        if "references" in data:
+            data["references"] = tuple(data["references"])
         return Draft(**data)
 
     def save(self, draft: Draft) -> None:

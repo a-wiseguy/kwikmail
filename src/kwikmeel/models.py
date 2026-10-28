@@ -10,6 +10,9 @@ class MailHeader:
     date: datetime | None
     seen: bool
     size: int = 0
+    message_id: str = ""
+    references: tuple[str, ...] = ()
+    in_reply_to: str = ""
 
     @property
     def searchable(self) -> str:
@@ -26,6 +29,11 @@ class MailBody:
     markdown: str
     attachments: tuple[str, ...] = ()
     truncated: bool = False
+    cc: str = ""
+    reply_to: str = ""
+    message_id: str = ""
+    in_reply_to: str = ""
+    references: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -42,6 +50,8 @@ class Draft:
     cc: str = ""
     subject: str = ""
     body: str = ""
+    in_reply_to: str = ""
+    references: tuple[str, ...] = ()
 
     @property
     def empty(self) -> bool:
