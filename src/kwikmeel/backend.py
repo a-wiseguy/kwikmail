@@ -69,7 +69,8 @@ class ImapBackend:
                     client.starttls(context)
                 client.login(account.username, account.password())
             except Exception:
-                client.shutdown()
+                with suppress(Exception):
+                    client.shutdown()
                 raise
             self.client = client
         return self.client
