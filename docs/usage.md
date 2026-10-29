@@ -76,9 +76,14 @@ bodies are cached by folder, UIDVALIDITY, and UID. Reopening a cached preview ne
 no network request. Preview fetches use `BODY.PEEK`, leaving unread state intact.
 
 Bodies are capped at 2 MB of wire data and 80,000 displayed characters. Large
-messages show a truncation notice. HTML-only mail is converted to Markdown. Remote
-images and active HTML are stripped. Links do not launch automatically. Attachments
-are listed when MIME information is available but cannot be opened or added in v1.
+messages show a truncation notice. When a plain-text alternative exists, it is preferred.
+HTML-only mail is converted to Markdown in both the preview and reader. Tables become
+stacked text in source order so newsletter layouts fit the terminal. Headings, lists,
+and safe links are preserved. Images display their alternative text without downloading
+resources; tracking pixels are omitted. Active content, document styles, and elements
+hidden by inline styles or the `hidden` attribute are removed. CSS layouts and colors
+are not reproduced. Links do not launch automatically. Attachments are listed when MIME
+information is available but cannot be opened or added in v1.
 
 The sidebar disappears below 110 columns; below 85 columns the message list fills
 the screen and Enter opens the reader. A terminal of at least 80 × 30 is recommended.

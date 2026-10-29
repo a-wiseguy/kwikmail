@@ -10,7 +10,8 @@ entire lifetime. The app selects a session and owns the visible mailbox state.
 | --- | --- |
 | `models.py` | Header, body, message identity, statistics, draft, and send outcomes |
 | `config.py` | TOML validation, account settings, password resolution |
-| `mail.py` | MIME decoding, HTML conversion, address validation, outgoing MIME |
+| `mail.py` | MIME decoding, address validation, outgoing MIME |
+| `html.py` | HTML reading order, hidden content removal, image descriptions, safe links |
 | `backend.py` | IMAP session, UID identity, body cache, SMTP submission |
 | `session.py` | Per-account admission, protocol serialization, statistics, send finalization |
 | `threads.py` | Pure grouping and flattening of loaded conversation headers |

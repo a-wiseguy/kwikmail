@@ -8,11 +8,10 @@ from email.parser import BytesParser
 from email.utils import format_datetime, formataddr, getaddresses, make_msgid, parsedate_to_datetime
 from typing import Literal
 
-from bs4 import BeautifulSoup
 from markdown_it import MarkdownIt
-from markdownify import markdownify
 
 from .config import Account
+from .html import to_markdown
 from .models import Draft, MailBody, MailHeader
 
 _ID_ATOM = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
@@ -75,10 +74,7 @@ def parse_body(uid: int, raw: bytes, truncated: bool = False) -> MailBody:
         except LookupError:
             body = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace")
         if part.get_content_type() == "text/html":
-            soup = BeautifulSoup(body, "html.parser")
-            for element in soup(["script", "style", "img", "iframe", "object"]):
-                element.decompose()
-            body = markdownify(str(soup), heading_style="ATX")
+            body = to_markdown(body)
     # Keep pathological messages from constructing thousands of Markdown widgets.
     truncated = truncated or len(body) > 80_000
     body = clean(body[:80_000])
