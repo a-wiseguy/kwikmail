@@ -16,6 +16,9 @@ dependencies = [
   "rapidfuzz>=3.14,<4",
   "markdownify>=1.2,<2",
   "markdown-it-py>=4,<5",
+  "msal>=1.31,<2",
+  "google-auth-oauthlib>=1.2,<2",
+  "filelock>=3.16,<4",
 ]
 
 [project.urls]

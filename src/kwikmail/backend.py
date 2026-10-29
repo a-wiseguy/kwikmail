@@ -10,6 +10,7 @@ from imapclient.exceptions import LoginError
 from .config import Account
 from .mail import build_message, parse_body, parse_header
 from .models import ConnectionResult, Draft, MailBody, MailboxStats, MailPage, SendResult
+from .oauth import LoginRequired, OAuthError, OAuthPolicyError, OAuthTokens
 
 HEADER_NAMES = "FROM TO CC REPLY-TO SUBJECT DATE MESSAGE-ID REFERENCES IN-REPLY-TO"
 HEADER_FIELD = f"BODY[HEADER.FIELDS ({HEADER_NAMES})]".encode()
@@ -22,7 +23,13 @@ class MailboxChanged(ValueError):
 
 def connection_error(error: Exception, protocol: str) -> str:
     """Do not expose server replies, credentials, subprocess output or terminal controls."""
-    if isinstance(error, ssl.SSLCertVerificationError):
+    if isinstance(error, LoginRequired):
+        detail = "OAuth login required; run --account NAME --login"
+    elif isinstance(error, OAuthPolicyError):
+        detail = "OAuth access blocked; check registration, consent and tenant policy"
+    elif isinstance(error, OAuthError):
+        detail = "OAuth unavailable; check registration, token storage or retry login"
+    elif isinstance(error, ssl.SSLCertVerificationError):
         detail = "certificate verification failed"
     elif isinstance(error, (smtplib.SMTPAuthenticationError, LoginError)):
         detail = "authentication failed"
@@ -46,8 +53,11 @@ def connection_error(error: Exception, protocol: str) -> str:
 
 
 class ImapBackend:
-    def __init__(self, account: Account):
+    def __init__(self, account: Account, *, account_key: str = "default", tokens=None):
         self.account = account
+        self.tokens = tokens
+        if account.auth == "oauth2" and tokens is None:
+            self.tokens = OAuthTokens(account, account_key)
         self.client: IMAPClient | None = None
         self.bodies: OrderedDict[tuple[str, int, int], MailBody] = OrderedDict()
 
@@ -65,7 +75,10 @@ class ImapBackend:
             try:
                 if account.imap_security == "starttls":
                     client.starttls(context)
-                client.login(account.username, account.password())
+                if account.auth == "oauth2":
+                    client.oauth2_login(account.username, self.tokens.access_token())
+                else:
+                    client.login(account.username, account.password())
             except Exception:
                 with suppress(Exception):
                     client.shutdown()
@@ -168,7 +181,7 @@ class ImapBackend:
         return MailboxStats(total, unread, validity, uidnext, datetime.now(UTC), new_count)
 
     def check_imap(self) -> ConnectionResult:
-        probe = ImapBackend(self.account)
+        probe = ImapBackend(self.account, tokens=self.tokens)
         try:
             probe.connection().noop()
             return ConnectionResult(True)
@@ -193,11 +206,24 @@ class ImapBackend:
                 smtp.ehlo()
                 smtp.starttls(context=context)
                 smtp.ehlo()
-            smtp.login(account.smtp_username or account.username, account.password(smtp=True))
+            username = account.smtp_username or account.username
+            if account.auth == "oauth2":
+                smtp.ehlo_or_helo_if_needed()
+                token = self.tokens.access_token()
+                payload = f"user={username}\x01auth=Bearer {token}\x01\x01"
+                smtp.auth("XOAUTH2", lambda challenge=None: payload if challenge is None else "")
+            else:
+                smtp.login(username, account.password(smtp=True))
             return smtp
-        except Exception:
+        except Exception as error:
             with suppress(Exception):
                 smtp.close()
+            if (
+                account.provider in ("outlook", "microsoft365")
+                and isinstance(error, smtplib.SMTPAuthenticationError)
+                and b"disabled" in error.smtp_error.lower()
+            ):
+                raise OAuthPolicyError() from None
             raise
 
     def check_smtp(self) -> ConnectionResult:
@@ -238,8 +264,22 @@ class ImapBackend:
         client.add_flags([uid], [b"\\Seen"])
 
     def append_sent(self, raw: bytes) -> None:
-        if self.account.sent_folder:
-            self.connection().append(self.account.sent_folder, raw, flags=[b"\\Seen"])
+        folder = self.account.sent_folder
+        if not folder:
+            return
+        client = self.connection()
+        if folder == "auto":
+            folders = [
+                name
+                for flags, _, name in client.list_folders()
+                if b"\\Sent" in flags and b"\\Noselect" not in flags
+            ]
+            if len(folders) != 1:
+                raise ValueError(
+                    "Set sent_folder to an existing folder, or empty for server copies."
+                )
+            folder = folders[0]
+        client.append(folder, raw, flags=[b"\\Seen"])
 
     def send(self, draft: Draft) -> tuple[bytes, SendResult]:
         message, recipients = build_message(self.account, draft)

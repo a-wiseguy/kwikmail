@@ -8,6 +8,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .providers import account_defaults
+
 
 def config_path() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "kwikmail/config.toml"
@@ -38,6 +40,13 @@ class Account:
     timeout: int = 15
     ca_file: str | None = None
     max_body_bytes: int = 2_000_000
+    provider: str = ""
+    zoho_region: str = "us"
+    auth: str = "password"
+    oauth_client_id: str = ""
+    oauth_client_secret_env: str = ""
+    oauth_tenant: str = "common"
+    oauth_username: str = ""
 
     def password(self, smtp: bool = False) -> str:
         env = self.smtp_password_env if smtp and self.smtp_password_env else self.password_env
@@ -111,8 +120,15 @@ def load_account(path: Path) -> Account:
 def _parse_account(data: object, table: str, path: Path) -> Account:
     if not isinstance(data, dict):
         raise ValueError(f"{table} must be a TOML table")
-    data = dict(data)
+    data = account_defaults(dict(data))
     for key in (
+        "provider",
+        "zoho_region",
+        "auth",
+        "oauth_client_id",
+        "oauth_client_secret_env",
+        "oauth_tenant",
+        "oauth_username",
         "host",
         "username",
         "address",
@@ -141,6 +157,20 @@ def _parse_account(data: object, table: str, path: Path) -> Account:
         account = Account(**data)
     except TypeError as error:
         raise ValueError(f"Invalid account configuration: {error}") from error
+    if account.auth not in ("password", "oauth2"):
+        raise ValueError("auth must be 'password' or 'oauth2'")
+    if account.auth == "oauth2":
+        if account.provider not in ("gmail", "outlook", "microsoft365"):
+            raise ValueError("oauth2 requires provider gmail, outlook or microsoft365")
+        if not account.oauth_client_id.strip():
+            raise ValueError("oauth_client_id is required for oauth2")
+        if account.provider == "gmail" and not account.oauth_client_secret_env.strip():
+            raise ValueError("oauth_client_secret_env is required for Gmail desktop oauth2")
+        if not re.fullmatch(r"[A-Za-z0-9.-]+", account.oauth_tenant):
+            raise ValueError("oauth_tenant must be a tenant ID or domain")
+        for value in (account.username, account.smtp_username):
+            if any(c in value for c in "\x00\x01\r\n"):
+                raise ValueError("OAuth usernames must not contain control characters")
     for key in ("imap_security", "smtp_security"):
         if getattr(account, key) not in ("tls", "starttls"):
             raise ValueError(f"{key} must be 'tls' or 'starttls'")

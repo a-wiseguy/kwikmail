@@ -89,6 +89,7 @@ The sidebar disappears below 110 columns; below 85 columns the message list fill
 the screen and Enter opens the reader. A terminal of at least 80 × 30 is recommended.
 
 The client has no IMAP IDLE/push, automatic polling, offline mail store, delete/move,
-attachment transfer, or OAuth. Use `R` for new mail. Paging uses sequence positions; concurrent expunges can change those
-positions, so refresh if another client removes messages while paging. Server-wide
+or attachment transfer. For Gmail/Microsoft OAuth and provider presets, see
+[provider setup](providers.md). Use `R` for new mail. Paging uses sequence positions;
+concurrent expunges can change those positions, so refresh if another client removes messages while paging. Server-wide
 search collects matching UIDs and can take longer on a large mailbox.

@@ -10,6 +10,8 @@ entire lifetime. The app selects a session and owns the visible mailbox state.
 | --- | --- |
 | `models.py` | Header, body, message identity, statistics, draft, and send outcomes |
 | `config.py` | TOML validation, account settings, password resolution |
+| `providers.py` | Provider defaults with explicit configuration overrides |
+| `oauth.py` | Login flows, account-bound token caches and serialized refresh |
 | `mail.py` | MIME decoding, address validation, outgoing MIME |
 | `html.py` | HTML reading order, hidden content removal, image descriptions, safe links |
 | `backend.py` | IMAP session, UID identity, body cache, SMTP submission |
@@ -97,3 +99,22 @@ acceptance testing against the user's own Dovecot/Postfix configuration.
 Implementation references: [Textual workers](https://textual.textualize.io/guide/workers/),
 [Textual DataTable](https://textual.textualize.io/widgets/data_table/), and
 [IMAPClient](https://imapclient.readthedocs.io/en/master/).
+
+## Provider authentication
+
+Account configuration resolves provider defaults before validation. Explicit
+settings override presets; legacy configuration and draft identities stay stable.
+The backend uses password login or XOAUTH2 after TLS verification. Connection
+probes share the account's token manager, while IMAP and SMTP report independently.
+
+The CLI performs interactive login before creating sessions. MSAL handles
+Microsoft device authorization and refresh; Google libraries handle desktop
+loopback authorization, identity verification and refresh. Normal mailbox work
+never starts interactive authorization. Tokens live outside draft storage, bound
+to the stable account identity and OAuth registration. Per-cache process locks
+serialize refresh and logout; owner-only temporary files replace caches atomically.
+
+Sent saving remains a separate finalization step. Provider presets can disable
+client append for server-saved copies, or discover a single selectable `\Sent`
+folder. Discovery failure reports an accepted-send warning without resubmission.
+See [provider setup](providers.md) for configuration and live verification.

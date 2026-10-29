@@ -38,6 +38,6 @@ Press `c` to compose, `Ctrl+P` to preview, and `Ctrl+X` to review and send. Draf
 
 ## Scope
 
-Password or app-password authentication. Manual refresh. No OAuth, attachment transfer, offline mailbox, or delete/move yet.
+Password, app-password and Gmail/Microsoft OAuth authentication. [Provider setup](docs/providers.md). Manual refresh. No attachment transfer, offline mailbox, or delete/move yet.
 
 [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE) · Built with [Textual](https://github.com/Textualize/textual)

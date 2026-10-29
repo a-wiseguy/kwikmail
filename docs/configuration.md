@@ -1,6 +1,7 @@
 # Connect your mailbox
 
-Connect an IMAP/SMTP mailbox using a password or app password.
+Connect an IMAP/SMTP mailbox using a password, app password or OAuth.
+See [common providers](providers.md) for presets, Gmail/Microsoft login and Proton Bridge.
 
 Use the server's externally reachable mail hostname, matching its TLS certificate.
 The default configuration uses IMAPS on port 993 and SMTP submission with STARTTLS
@@ -25,7 +26,8 @@ ${EDITOR:-vi} ~/.config/kwikmail/config.toml
 Set `host`, `username`, `address`, and `name`. See the [full example](../config.example.toml) for optional settings. Check that `sent_folder` matches a
 folder on your server. `kwikmail --check` tests IMAP and SMTP authentication independently without sending. Set
 `sent_folder = ""` if your server already files outgoing mail automatically.
-Kwikmail does not create remote folders.
+Use `sent_folder = "auto"` to discover a folder advertising `\Sent`; discovery
+requires exactly one selectable candidate. Kwikmail does not create remote folders.
 
 Supply the password through a password manager command or environment variable.
 For example, macOS Keychain can be used with the following config entry after

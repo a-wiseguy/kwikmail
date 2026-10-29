@@ -1,5 +1,6 @@
 """Exercise IMAPClient and smtplib against local TLS socket servers, no real mailbox."""
 
+import base64
 import re
 import socket
 import socketserver
@@ -56,7 +57,13 @@ def imap_server(tls):
                 verb = command.split(b" ", 1)[0].upper()
                 commands.append(command)
                 if verb == b"CAPABILITY":
-                    self.send(b"* CAPABILITY IMAP4rev1")
+                    self.send(b"* CAPABILITY IMAP4rev1 AUTH=XOAUTH2")
+                elif verb == b"AUTHENTICATE":
+                    self.send(b"+ ")
+                    state["oauth_payload"] = base64.b64decode(self.rfile.readline().strip())
+                    if state.get("reject_login"):
+                        self.send(tag + b" NO private-auth-detail")
+                        continue
                 elif verb == b"LOGIN":
                     if state.get("reject_login"):
                         self.send(tag + b" NO secret-auth-detail")
@@ -78,7 +85,12 @@ def imap_server(tls):
                     self.send(f'* STATUS "INBOX" ({text})'.encode())
                 elif verb == b"LIST":
                     self.send(b'* LIST (\\HasNoChildren) "/" "INBOX"')
-                    self.send(b'* LIST (\\HasNoChildren) "/" "Sent"')
+                    flags = (
+                        b"\\HasNoChildren \\Sent"
+                        if state.get("special_sent")
+                        else b"\\HasNoChildren"
+                    )
+                    self.send(b"* LIST (" + flags + b') "/" "Sent"')
                     self.send(b'* LIST (\\Noselect) "/" "Parent"')
                 elif verb in (b"SELECT", b"EXAMINE"):
                     self.send(b"* 3 EXISTS")

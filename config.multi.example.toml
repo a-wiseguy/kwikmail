@@ -25,3 +25,16 @@ address = "you@work.example"
 password_env = "KWIKMAIL_WORK_PASSWORD"
 sent_folder = "Sent"
 # all legacy account settings also apply here; see config.example.toml.
+
+# oauth account example; replace registration and address before enabling
+# [accounts.microsoft]
+# provider = "outlook"
+# address = "you@outlook.com"
+# oauth_client_id = "your-application-id"
+# auth = "oauth2"
+
+# app-password account example
+# [accounts.gmail]
+# provider = "gmail"
+# address = "you@gmail.com"
+# password_command = ["pass", "mail/gmail"]
