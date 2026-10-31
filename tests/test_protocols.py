@@ -269,3 +269,21 @@ def test_smtp_tls_auth_mime_and_partial_refusal(tls, monkeypatch, security):
         assert len(received) == 1
     finally:
         controller.stop()
+
+
+def test_full_message_range_download_over_tls(imap_server, monkeypatch):
+    from datetime import date
+
+    port, ca_file, commands, _, _ = imap_server
+    monkeypatch.setenv("KWIKMAIL_PASSWORD", "test-only")
+    backend = ImapBackend(
+        Account("localhost", "you@example.com", "you@example.com", imap_port=port, ca_file=ca_file)
+    )
+    try:
+        validity, uids = backend.range_uids("INBOX", date(2026, 1, 1), date(2026, 4, 1))
+        assert validity == 42 and uids == [101, 103]
+        assert backend.raw("INBOX", validity, 101) == RAW
+        assert any(b"SINCE 01-Jan-2026 BEFORE 01-Apr-2026" in command for command in commands)
+        assert not any(b"STORE" in command or command.startswith(b"SELECT") for command in commands)
+    finally:
+        backend.close()

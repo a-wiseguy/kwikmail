@@ -13,6 +13,9 @@ entire lifetime. The app selects a session and owns the visible mailbox state.
 | `providers.py` | Provider defaults with explicit configuration overrides |
 | `oauth.py` | Login flows, account-bound token caches and serialized refresh |
 | `mail.py` | MIME decoding, address validation, outgoing MIME |
+| `attachments.py` | Attachment extraction, safe filenames, exclusive file writes |
+| `exports.py` | Date ranges, MIME filtering, EML exports and manifests |
+| `cli.py` | Typer commands, account selection and JSON output |
 | `html.py` | HTML reading order, hidden content removal, image descriptions, safe links |
 | `backend.py` | IMAP session, UID identity, body cache, SMTP submission |
 | `session.py` | Per-account admission, protocol serialization, statistics, send finalization |
@@ -89,7 +92,7 @@ Counts describe loaded members; server totals describe the entire mailbox.
 
 Sequence-based paging may skip or repeat a position after concurrent expunges.
 The UI deduplicates UIDs; refreshing establishes a new page. Search results collect
-all matching UIDs before fetching a bounded header page. Large messages are partial
+all matching UIDs before fetching a bounded header page. Large previews are partial
 MIME documents after the wire limit, so attachments or a later text part can be absent.
 These limitations are described in [usage](usage.md) and the truncation notice.
 
@@ -118,3 +121,26 @@ Sent saving remains a separate finalization step. Provider presets can disable
 client append for server-saved copies, or discover a single selectable `\Sent`
 folder. Discovery failure reports an accepted-send warning without resubmission.
 See [provider setup](providers.md) for configuration and live verification.
+
+## CLI and exports
+
+`__main__.py` routes `kwikmail cli` to Typer and keeps the terminal entrypoint.
+CLI commands load account settings on demand, so help works without a config file.
+Each operation closes its backend when finished. Sending uses `AccountSession`
+to preserve SMTP acceptance, Sent-copy handling and draft cleanup.
+
+`range_uids()` selects a folder read-only and searches IMAP internal dates with
+inclusive `SINCE` and exclusive `BEFORE`. `raw()` checks UIDVALIDITY and message
+size before fetching complete bytes with `BODY.PEEK`. Downloads reject truncated
+or oversized responses. Reader downloads use the captured session and message
+reference; switching accounts cannot redirect them.
+
+The export scanner reads one complete message at a time. Invoice matching accepts
+an attachment or a keyword in decoded subject/text parts. Each export gets a new
+directory, original EML files, decoded attachments and a JSON manifest. File writes
+use exclusive creation and owner-only permissions. The manifest starts incomplete
+and is replaced atomically on completion or a handled failure. A killed process
+can leave files absent from its incomplete manifest. Search results and export
+metadata accumulate in memory; the message bodies do not.
+
+See the [CLI guide](cli.md) for commands, date semantics and error handling.

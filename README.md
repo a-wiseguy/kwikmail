@@ -17,6 +17,7 @@ Read, reply, and send mail from your terminal, locally or over SSH.
 - Browse folders and conversations with Vim keys and fuzzy search.
 - Write Markdown with a live preview.
 - Switch accounts without mixing drafts.
+- Download attachments and export invoice candidates with [JSON CLI commands](docs/cli.md).
 - Connect directly to your IMAP and SMTP server over TLS.
 
 ## Install
@@ -38,6 +39,6 @@ Press `c` to compose, `Ctrl+P` to preview, and `Ctrl+X` to review and send. Draf
 
 ## Scope
 
-Password, app-password and Gmail/Microsoft OAuth authentication. [Provider setup](docs/providers.md). Manual refresh. No attachment transfer, offline mailbox, or delete/move yet.
+Password, app-password and Gmail/Microsoft OAuth authentication. [Provider setup](docs/providers.md). Manual refresh. Attachment downloads and date-range exports are supported. No outgoing attachments, offline mailbox, or delete/move yet.
 
 [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE) · Built with [Textual](https://github.com/Textualize/textual)

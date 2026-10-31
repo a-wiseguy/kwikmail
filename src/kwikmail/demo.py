@@ -153,10 +153,38 @@ class DemoBackend:
             self.account.address,
             row.date.strftime("%a, %d %b %Y %H:%M %z") if row.date else "",
             content,
+            attachments=("invoice.txt",) if uid % 5 == 0 else (),
             message_id=row.message_id,
             references=row.references,
             in_reply_to=row.references[-1] if row.references else "",
         )
+
+    def range_uids(self, folder, since, before):
+        return 1, sorted(
+            row.uid for row in self.items[folder] if row.date and since <= row.date.date() < before
+        )
+
+    def raw(self, folder, validity, uid, max_bytes=50_000_000):
+        from email.message import EmailMessage
+
+        body = self.body(folder, validity, uid)
+        message = EmailMessage()
+        for key, value in (
+            ("Subject", body.subject),
+            ("From", body.sender),
+            ("To", body.to),
+            ("Date", body.date),
+        ):
+            message[key] = value
+        message.set_content(body.markdown)
+        if uid % 5 == 0:
+            message.add_attachment(
+                b"demo invoice\n",
+                maintype="application",
+                subtype="octet-stream",
+                filename="invoice.txt",
+            )
+        return message.as_bytes()
 
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
         if validity != 1:

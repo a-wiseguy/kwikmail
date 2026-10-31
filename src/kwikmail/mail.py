@@ -81,7 +81,7 @@ def parse_body(uid: int, raw: bytes, truncated: bool = False) -> MailBody:
     attachments = tuple(
         one_line(part.get_filename() or "unnamed attachment")
         for part in message.walk()
-        if part.get_content_disposition() == "attachment"
+        if part.get_content_disposition() == "attachment" or part.get_filename()
     )
     return MailBody(
         uid,

@@ -8,7 +8,15 @@ from .config import Account, AccountEntry, Settings, config_path, load_settings,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Kwikmail · keyboard-first terminal mail")
+    if sys.argv[1:2] == ["cli"]:
+        from .cli import main as cli_main
+
+        cli_main()
+        return
+    parser = argparse.ArgumentParser(
+        description="Kwikmail · keyboard-first terminal mail",
+        epilog="Scriptable commands: kwikmail cli --help",
+    )
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument(
         "--demo", action="store_true", help="Explore two sample accounts, no server needed"

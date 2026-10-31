@@ -641,3 +641,20 @@ async def test_failed_mailbox_shows_unknown_total_and_preserves_error_preview(tm
         await settled(pilot)
         assert "Mailbox unavailable" in str(app.preview.query_one(Static).render())
         assert "Inbox zero" not in str(app.preview.query_one(Static).render())
+
+
+async def test_reader_download_attachments(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    app = make_app(tmp_path)
+    async with app.run_test(size=(150, 45)) as pilot:
+        await settled(pilot)
+        await pilot.press("g", "enter")
+        await settled(pilot)
+        assert isinstance(app.screen, ReaderScreen)
+        await pilot.press("d")
+        await settled(pilot)
+        files = list((tmp_path / "Downloads" / "kwikmail").glob("message-*/*"))
+        assert len(files) == 1
+        assert files[0].read_bytes() == b"demo invoice\n"

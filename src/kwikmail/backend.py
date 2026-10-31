@@ -256,6 +256,32 @@ class ImapBackend:
             self.bodies.popitem(last=False)
         return body
 
+    def range_uids(self, folder, since, before):
+        client = self.connection()
+        info = client.select_folder(folder, readonly=True)
+        criteria = ["SINCE", since, "BEFORE", before]
+        return int(info[b"UIDVALIDITY"]), sorted(client.search(criteria))
+
+    def raw(self, folder: str, validity: int, uid: int, max_bytes: int = 50_000_000) -> bytes:
+        client = self.connection()
+        info = client.select_folder(folder, readonly=True)
+        if int(info[b"UIDVALIDITY"]) != validity:
+            raise MailboxChanged("Mailbox changed; list messages again before downloading.")
+        rows = client.fetch([uid], ["RFC822.SIZE"])
+        if uid not in rows or b"RFC822.SIZE" not in rows[uid]:
+            raise ValueError("Message unavailable or size missing.")
+        size = int(rows[uid][b"RFC822.SIZE"])
+        if size < 0 or max_bytes < 1:
+            raise ValueError("Invalid message size or download limit.")
+        if size > max_bytes:
+            raise ValueError("Message exceeds the download size limit.")
+        rows = client.fetch([uid], [f"BODY.PEEK[]<0.{max_bytes + 1}>"])
+        row = rows.get(uid, {})
+        raw = row.get(b"BODY[]<0>", row.get(b"BODY[]"))
+        if raw is None or len(raw) != size or len(raw) > max_bytes:
+            raise ValueError("Incomplete message download; no file was exported.")
+        return raw
+
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
         client = self.connection()
         info = client.select_folder(folder, readonly=False)

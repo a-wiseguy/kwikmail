@@ -175,6 +175,15 @@ class AccountSession:
             protocol="IMAP",
         )
 
+    async def raw(self, ref: MessageRef) -> bytes:
+        self._check_ref(ref)
+        backend = self.backend
+        return await self._run(
+            self._imap_lock,
+            lambda: backend.raw(ref.folder, ref.validity, ref.uid),
+            protocol="IMAP",
+        )
+
     async def mark_seen(self, ref: MessageRef) -> None:
         self._check_ref(ref)
         backend = self.backend

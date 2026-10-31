@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kwikmail"
-version = "1.0.0"
+version = "1.1.0"
 description = "A keyboard-first IMAP mail client for your terminal"
 requires-python = ">=3.11"
 license = "MIT"
@@ -19,6 +19,7 @@ dependencies = [
   "msal>=1.31,<2",
   "google-auth-oauthlib>=1.2,<2",
   "filelock>=3.16,<4",
+  "typer>=0.27.3,<0.28",
 ]
 
 [project.urls]
@@ -42,3 +43,6 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]

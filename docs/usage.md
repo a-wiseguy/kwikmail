@@ -25,7 +25,7 @@
 
 In pickers, type to filter, `Ctrl+J/K` or arrows to select, and `Enter` to accept.
 In the reader, arrows or `j/k` scroll. `r` replies, `a` replies to all, and `w`
-forwards. `q` or `Esc` returns to the mailbox.
+forwards. `d` downloads attachments. `q` or `Esc` returns to the mailbox.
 
 Local fuzzy filtering searches only loaded headers and displays up to 500 ranked
 matches. Server search uses IMAP's substring matching, runs on Enter, and includes
@@ -83,13 +83,20 @@ and safe links are preserved. Images display their alternative text without down
 resources; tracking pixels are omitted. Active content, document styles, and elements
 hidden by inline styles or the `hidden` attribute are removed. CSS layouts and colors
 are not reproduced. Links do not launch automatically. Attachments are listed when MIME
-information is available but cannot be opened or added in v1.
+information is available. Press `d` in the reader to download the complete
+attachments. Outgoing attachments are not supported.
 
 The sidebar disappears below 110 columns; below 85 columns the message list fills
 the screen and Enter opens the reader. A terminal of at least 80 × 30 is recommended.
 
 The client has no IMAP IDLE/push, automatic polling, offline mail store, delete/move,
-or attachment transfer. For Gmail/Microsoft OAuth and provider presets, see
+or outgoing attachments. For Gmail/Microsoft OAuth and provider presets, see
 [provider setup](providers.md). Use `R` for new mail. Paging uses sequence positions;
 concurrent expunges can change those positions, so refresh if another client removes messages while paging. Server-wide
 search collects matching UIDs and can take longer on a large mailbox.
+
+## Attachment downloads and scripts
+
+Press `d` in the reader to save attachments beneath `~/Downloads/kwikmail/`.
+Each download uses a new directory shown in the notification. For scripting,
+JSON output and quarterly invoice exports, see the [CLI guide](cli.md).

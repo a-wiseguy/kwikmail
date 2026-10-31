@@ -1,4 +1,7 @@
+import asyncio
+import tempfile
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rapidfuzz import fuzz, process
@@ -77,6 +80,7 @@ class ReaderScreen(Screen):
         ("r", "respond('reply')", "Reply"),
         ("a", "respond('reply_all')", "Reply all"),
         ("w", "respond('forward')", "Forward"),
+        ("d", "download", "Download attachments"),
     ]
 
     def __init__(
@@ -94,7 +98,7 @@ class ReaderScreen(Screen):
         yield Static(" KWIKMAIL  /  READER", classes="topbar")
         yield MailView(id="reader-view")
         yield Static(
-            " esc  back    ↑/↓  scroll    r  reply    a  reply all    w  forward"
+            " esc  back    ↑/↓  scroll    r  reply    a  reply all    w  forward    d  download"
             if self.session
             else " esc  back    ↑/↓  scroll    ctrl+d/u  page",
             classes="bottom-hint",
@@ -103,6 +107,28 @@ class ReaderScreen(Screen):
     def on_mount(self) -> None:
         self.run_worker(self.query_one(MailView).show_body(self.body))
         self.query_one(VerticalScroll).focus()
+
+    @work(exclusive=True, group="attachments")
+    async def action_download(self) -> None:
+        if self.session is None or self.ref is None:
+            return
+        from .attachments import extract_attachments, save_attachments
+
+        try:
+            raw = await self.session.raw(self.ref)
+            if not extract_attachments(raw):
+                self.notify("No attachments in this message.")
+                return
+            root = Path.home() / "Downloads" / "kwikmail"
+            root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            directory = Path(tempfile.mkdtemp(prefix="message-", dir=root))
+            files = await asyncio.to_thread(save_attachments, raw, directory)
+            self.notify(f"Saved {len(files)} attachment(s) to {directory}", timeout=10)
+        except Exception:
+            self.notify(
+                "Attachment download failed; check connection and output permissions.",
+                severity="error",
+            )
 
     def action_respond(self, kind: str) -> None:
         if self.session is not None:
