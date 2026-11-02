@@ -1,16 +1,17 @@
 """Date-bounded mailbox selection and lossless message exports."""
 
 import calendar
+import hashlib
 import json
 import re
 import tempfile
+import uuid
 from datetime import date, timedelta
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
 
 from .attachments import extract_attachments, save_attachments, write_private
-from .mail import parse_header
 
 INVOICE_WORDS = ("invoice", "factuur", "payment", "betaling", "receipt", "rekening")
 
@@ -80,14 +81,6 @@ def matches(raw, mode, keywords):
     return any(word.casefold() in haystack for word in keywords)
 
 
-def scan(backend, folder, since, before, mode, keywords, max_bytes):
-    validity, uids = backend.range_uids(folder, since, before)
-    for uid in uids:
-        raw = backend.raw(folder, validity, uid, max_bytes)
-        if matches(raw, mode, keywords):
-            yield validity, parse_header(uid, raw, (), len(raw)), raw
-
-
 def export_directory(output: Path) -> Path:
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     return Path(tempfile.mkdtemp(prefix="kwikmail-", dir=output))
@@ -95,14 +88,48 @@ def export_directory(output: Path) -> Path:
 
 def export_message(directory, index, raw):
     target = directory / f"{index:06d}"
+    while target.exists():
+        index += 1
+        target = directory / f"{index:06d}"
     target.mkdir(mode=0o700)
     path = target / "message.eml"
     write_private(path, raw)
-    return {"eml": str(path), "attachments": save_attachments(raw, target / "attachments")}
+    attachments = save_attachments(raw, target / "attachments")
+    for attachment in attachments:
+        attachment["sha256"] = hashlib.sha256(Path(attachment["path"]).read_bytes()).hexdigest()
+    return {
+        "eml": str(path),
+        "eml_sha256": hashlib.sha256(raw).hexdigest(),
+        "attachments": attachments,
+    }
+
+
+def validate_export_files(directory, report):
+    for item in report["messages"]:
+        path = Path(item["eml"])
+        if (
+            not path.resolve().is_relative_to(directory)
+            or not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != item["eml_sha256"]
+        ):
+            raise ValueError(
+                "Exported message missing or changed; restore files or start a new export."
+            )
+        for attachment in item["attachments"]:
+            path = Path(attachment["path"])
+            if (
+                not path.resolve().is_relative_to(directory)
+                or not path.is_file()
+                or path.stat().st_size != attachment["size"]
+                or hashlib.sha256(path.read_bytes()).hexdigest() != attachment["sha256"]
+            ):
+                raise ValueError("Exported attachment missing or changed; start a new export.")
 
 
 def save_manifest(directory, manifest):
-    # Atomic replacement occurs only within this invocation's private run directory.
-    temporary = directory / "manifest.tmp"
-    write_private(temporary, json.dumps(manifest, ensure_ascii=True, indent=2).encode())
-    temporary.replace(directory / "manifest.json")
+    temporary = directory / f".manifest-{uuid.uuid4().hex}.tmp"
+    try:
+        write_private(temporary, json.dumps(manifest, ensure_ascii=True, indent=2).encode())
+        temporary.replace(directory / "manifest.json")
+    finally:
+        temporary.unlink(missing_ok=True)

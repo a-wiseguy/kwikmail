@@ -53,6 +53,15 @@ unset KWIKMAIL_PASSWORD
 `password_command` is an array of executable arguments, run without a shell. Its
 stdout must contain only the password. `password_env` takes precedence when set.
 For different SMTP credentials, set `smtp_username` and `smtp_password_env`.
+
+For local development, each account can instead set `password = "..."` directly
+in its TOML table. The file must be a regular file owned by the current user with
+mode `0600`; run `chmod 600 ./config.toml` before loading it. A `password` key,
+including an empty placeholder, cannot share a table with `password_env` or
+`password_command`. An empty password fails when connecting. The default
+`KWIKMAIL_PASSWORD` environment variable does not override a TOML password.
+`smtp_password_env` can still supply separate SMTP credentials. Account display
+and Python representations omit the plaintext password.
 For a private certificate authority, set `ca_file` to its PEM bundle; certificate
 and hostname verification remain enabled.
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 import subprocess
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .providers import account_defaults
@@ -47,8 +48,13 @@ class Account:
     oauth_client_secret_env: str = ""
     oauth_tenant: str = "common"
     oauth_username: str = ""
+    plaintext_password: str | None = field(default=None, repr=False)
 
     def password(self, smtp: bool = False) -> str:
+        if self.plaintext_password is not None and not (smtp and self.smtp_password_env):
+            if self.plaintext_password:
+                return self.plaintext_password
+            raise ValueError("Set a nonempty password before connecting.")
         env = self.smtp_password_env if smtp and self.smtp_password_env else self.password_env
         value = os.environ.get(env)
         if value:
@@ -120,7 +126,23 @@ def load_account(path: Path) -> Account:
 def _parse_account(data: object, table: str, path: Path) -> Account:
     if not isinstance(data, dict):
         raise ValueError(f"{table} must be a TOML table")
-    data = account_defaults(dict(data))
+    data = dict(data)
+    if "plaintext_password" in data:
+        raise ValueError("Use password for a configuration-file password")
+    if "password" in data:
+        if not isinstance(data["password"], str):
+            raise ValueError(f"[{table}].password must be a string")
+        if "password_env" in data or "password_command" in data:
+            raise ValueError("password cannot be combined with password_env or password_command")
+        permissions = path.lstat()
+        if (
+            not stat.S_ISREG(permissions.st_mode)
+            or permissions.st_uid != os.getuid()
+            or stat.S_IMODE(permissions.st_mode) != 0o600
+        ):
+            raise ValueError("Configuration containing password requires an owner-owned 0600 file")
+        data["plaintext_password"] = data.pop("password")
+    data = account_defaults(data)
     for key in (
         "provider",
         "zoho_region",

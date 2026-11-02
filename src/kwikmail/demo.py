@@ -186,6 +186,11 @@ class DemoBackend:
             )
         return message.as_bytes()
 
+    def received_at(self, folder, validity, uid):
+        if validity != 1:
+            raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
+        return next(row.date for row in self.items[folder] if row.uid == uid)
+
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
         if validity != 1:
             raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")

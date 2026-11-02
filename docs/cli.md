@@ -91,6 +91,9 @@ Select exactly one range style:
 Relative dates use the machine's local date. IMAP `SINCE`/`BEFORE` select by the
 server's internal message date, not the sender-controlled `Date` header. The
 manifest's per-message `date` is the sender header and can differ or be absent.
+`internal_date` records the server's `INTERNALDATE` with its timezone offset;
+`received_at` represents the same instant in UTC. Neither comes from the sender's
+header.
 
 `search` defaults to `--match all`. `export` defaults to `--match invoices`, which
 matches any attachment OR any keyword in the decoded subject or text MIME
@@ -101,16 +104,35 @@ before treating them as invoices.
 
 Each export creates a unique `kwikmail-*` directory beneath `--output`, containing:
 
-- `manifest.json`: account, folder, UID validity, UID, sender, subject, size,
-  attachment metadata, paths and completion state.
+- `manifest.json`: account, folder, UID validity, UID, sender, subject, sender date,
+  server internal date, UTC received timestamp, size, SHA-256 hashes, attachment
+  metadata, paths, counters, per-message progress, and completion state.
 - One numbered directory per match with the original `message.eml` bytes and
   decoded files in `attachments/`.
 
 Rerunning creates another export; it never overwrites a previous run. On failure,
 stdout contains partial results with `complete: false`, stderr contains the error,
 and the exit code is nonzero. The manifest remains incomplete. Check completion
-before using an export in another process. An interrupted process can leave files
-not yet listed in its incomplete manifest; restart into a new export directory.
+before using an export in another process.
+
+The manifest is replaced atomically after each examined message, including
+unmatched messages and failures. `examined` counts attempted UIDs, `matched`
+counts exported matches, and `failed` counts UIDs that still need a successful
+retry. A failure stops the scan. Resume the same export with its recorded range,
+account selection, folder, matching options, and download limit:
+
+```sh
+kwikmail cli --account work --json export --quarter 2026-Q3 --resume ./exports/kwikmail-EXAMPLE
+```
+
+Use exactly one of `--output` or `--resume`. Resume verifies the account endpoint,
+folder, UID validity, and hashes of previously exported files. It skips completed
+UIDs and retries the failed UID before continuing the saved UID list. Messages
+that arrive after the initial scan are excluded; start a new export to include
+them. Each mailbox records its UID list when that mailbox is first scanned.
+Concurrent access to the same export directory is rejected. An interrupted
+process can leave files outside the manifest; resume preserves those files and
+uses new numbered directories when needed.
 
 The scan downloads every message in the date range, one at a time, to inspect
 its MIME attachments. Scans are not limited to the first

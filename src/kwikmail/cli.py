@@ -2,16 +2,17 @@
 
 import asyncio
 import json
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
 
 import typer
+from filelock import FileLock, Timeout
 
 from .attachments import extract_attachments, save_attachments
-from .backend import ImapBackend, connection_error
+from .backend import ImapBackend, MailboxChanged, connection_error
 from .config import Account, AccountEntry, Settings, config_path, load_settings, state_path
 from .demo import DemoBackend
 from .exports import (
@@ -19,10 +20,11 @@ from .exports import (
     date_range,
     export_directory,
     export_message,
+    matches,
     save_manifest,
-    scan,
+    validate_export_files,
 )
-from .mail import make_response, parse_body
+from .mail import make_response, parse_body, parse_header
 from .models import Draft
 from .session import AccountSession
 from .storage import DraftStore
@@ -247,53 +249,145 @@ def attachments(
 
 
 def run_scan(
-    ctx, since, before, quarter, last, folder, match, keyword, all_accounts, max_bytes, output=None
+    ctx,
+    since,
+    before,
+    quarter,
+    last,
+    folder,
+    match,
+    keyword,
+    all_accounts,
+    max_bytes,
+    output=None,
+    resume=None,
 ):
     start, stop = date_range(since=since, before=before, quarter=quarter, last=last)
     keywords = keyword or list(INVOICE_WORDS)
     if any(not word.strip() for word in keywords):
         raise ValueError("Keywords must not be empty.")
-    directory = export_directory(output) if output else None
-    report = {
+    selected = settings_for(ctx).accounts if all_accounts else [entry(ctx)]
+    selection = [
+        {
+            "account": account.key,
+            "host": account.account.host,
+            "port": account.account.imap_port,
+            "security": account.account.imap_security,
+            "username": account.account.username,
+            "address": account.account.address,
+            "folder": folder or account.account.inbox,
+        }
+        for account in selected
+    ]
+    request = {
         "since": str(start),
         "before": str(stop),
-        "date_basis": "imap_internal_date",
         "match": match.value,
         "keywords": keywords,
-        "complete": False,
-        "messages": [],
+        "max_bytes": max_bytes,
+        "selection": selection,
     }
-    if directory:
-        report["directory"] = str(directory)
-        save_manifest(directory, report)
+    directory = (
+        resume.resolve() if resume else export_directory(output).resolve() if output else None
+    )
+    lock = FileLock(directory / ".export.lock", timeout=0) if directory else nullcontext()
     try:
-        selected = settings_for(ctx).accounts if all_accounts else [entry(ctx)]
-        for account in selected:
-            with backend_for(ctx, account) as backend:
-                mailbox = folder or account.account.inbox
-                for validity, header, raw in scan(
-                    backend, mailbox, start, stop, match.value, keywords, max_bytes
-                ):
-                    item = {
-                        "account": account.key,
-                        "folder": mailbox,
-                        "validity": validity,
-                        "uid": header.uid,
-                        "subject": header.subject,
-                        "sender": header.sender,
-                        "date": str(header.date) if header.date else None,
-                        "size": len(raw),
-                        "attachments": [a.name for a in extract_attachments(raw)],
-                    }
-                    if directory:
-                        item.update(export_message(directory, len(report["messages"]) + 1, raw))
-                    report["messages"].append(item)
-        report["complete"] = True
-    finally:
+        with lock:
+            _scan_report(ctx, selected, start, stop, request, directory, resume)
+    except Timeout:
+        raise ValueError("Export directory is already in use.") from None
+
+
+def _scan_report(ctx, selected, start, stop, request, directory, resume):
+    if resume:
+        report = json.loads((directory / "manifest.json").read_text())
+        if report.get("version") != 2 or any(report.get(k) != v for k, v in request.items()):
+            raise ValueError("Resume requires the same accounts, folders, range and scan options.")
+        if Path(report.get("directory", "")).resolve() != directory:
+            raise ValueError("Resume directory does not match the manifest.")
+        validate_export_files(directory, report)
+    else:
+        report = {
+            **request,
+            "version": 2,
+            "date_basis": "imap_internal_date",
+            "complete": False,
+            "messages": [],
+            "mailboxes": [],
+        }
+        if directory:
+            report["directory"] = str(directory.resolve())
+    report["complete"] = False
+    report.pop("error", None)
+
+    def checkpoint():
+        states = [state for box in report["mailboxes"] for state in box["progress"].values()]
+        report.update(
+            examined=len(states), matched=len(report["messages"]), failed=states.count("failed")
+        )
         if directory:
             save_manifest(directory, report)
+
+    checkpoint()
+    try:
+        for account, identity in zip(selected, request["selection"], strict=True):
+            mailbox = identity["folder"]
+            with backend_for(ctx, account) as backend:
+                validity, uids = backend.range_uids(mailbox, start, stop)
+                saved = next(
+                    (box for box in report["mailboxes"] if box["identity"] == identity), None
+                )
+                if saved is None:
+                    saved = {
+                        "identity": identity,
+                        "validity": validity,
+                        "uids": uids,
+                        "progress": {},
+                    }
+                    report["mailboxes"].append(saved)
+                    checkpoint()
+                elif saved["validity"] != validity:
+                    raise MailboxChanged("Mailbox UIDVALIDITY changed; start a new export.")
+                for uid in saved["uids"]:
+                    if saved["progress"].get(str(uid)) in ("matched", "unmatched"):
+                        continue
+                    try:
+                        raw = backend.raw(mailbox, validity, uid, request["max_bytes"])
+                        internal_date = backend.received_at(mailbox, validity, uid)
+                        if matches(raw, request["match"], request["keywords"]):
+                            header = parse_header(uid, raw, (), len(raw))
+                            item = {
+                                "account": account.key,
+                                "folder": mailbox,
+                                "validity": validity,
+                                "uid": uid,
+                                "subject": header.subject,
+                                "sender": header.sender,
+                                "date": str(header.date) if header.date else None,
+                                "internal_date": internal_date.isoformat(),
+                                "received_at": internal_date.astimezone(UTC).isoformat(),
+                                "size": len(raw),
+                                "attachments": [a.name for a in extract_attachments(raw)],
+                            }
+                            if directory:
+                                item.update(
+                                    export_message(directory, len(report["messages"]) + 1, raw)
+                                )
+                            report["messages"].append(item)
+                            saved["progress"][str(uid)] = "matched"
+                        else:
+                            saved["progress"][str(uid)] = "unmatched"
+                    except Exception:
+                        saved["progress"][str(uid)] = "failed"
+                        checkpoint()
+                        raise
+                    checkpoint()
+        report["complete"] = True
+    finally:
         if not report["complete"]:
             report["error"] = "Scan failed; results are incomplete."
+        checkpoint()
+        if not report["complete"]:
             emit(ctx, report)
     emit(ctx, report)
 
@@ -318,7 +412,8 @@ def search(
 @app.command("export")
 def export_mail(
     ctx: typer.Context,
-    output: Path = typer.Option(...),
+    output: Path = typer.Option(None),
+    resume: Path = typer.Option(None, exists=True, file_okay=False),
     since: str = None,
     before: str = None,
     quarter: str = None,
@@ -330,8 +425,21 @@ def export_mail(
     max_bytes: int = typer.Option(50_000_000, min=1),
 ):
     """Export EML, attachments and a manifest. Default: attachments OR invoice keywords."""
+    if bool(output) == bool(resume):
+        raise ValueError("Supply exactly one of --output or --resume.")
     run_scan(
-        ctx, since, before, quarter, last, folder, match, keyword, all_accounts, max_bytes, output
+        ctx,
+        since,
+        before,
+        quarter,
+        last,
+        folder,
+        match,
+        keyword,
+        all_accounts,
+        max_bytes,
+        output,
+        resume,
     )
 
 

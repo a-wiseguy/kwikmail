@@ -262,6 +262,22 @@ class ImapBackend:
         criteria = ["SINCE", since, "BEFORE", before]
         return int(info[b"UIDVALIDITY"]), sorted(client.search(criteria))
 
+    def received_at(self, folder: str, validity: int, uid: int) -> datetime:
+        client = self.connection()
+        info = client.select_folder(folder, readonly=True)
+        if int(info[b"UIDVALIDITY"]) != validity:
+            raise MailboxChanged("Mailbox changed; start a new export.")
+        previous = client.normalise_times
+        client.normalise_times = False
+        try:
+            rows = client.fetch([uid], ["INTERNALDATE"])
+        finally:
+            client.normalise_times = previous
+        value = rows.get(uid, {}).get(b"INTERNALDATE")
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise ValueError("Message unavailable or server INTERNALDATE missing.")
+        return value
+
     def raw(self, folder: str, validity: int, uid: int, max_bytes: int = 50_000_000) -> bytes:
         client = self.connection()
         info = client.select_folder(folder, readonly=True)
