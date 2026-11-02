@@ -29,6 +29,12 @@ folder on your server. `kwikmail --check` tests IMAP and SMTP authentication ind
 Use `sent_folder = "auto"` to discover a folder advertising `\Sent`; discovery
 requires exactly one selectable candidate. Kwikmail does not create remote folders.
 
+`trash_folder` defaults to `"auto"`. It discovers exactly one selectable folder
+advertising `\Trash`. If discovery finds none or several, set the existing folder
+name explicitly, for example `trash_folder = "Deleted Items"`. Trash operations
+fail when the destination is missing or ambiguous; kwikmail does not guess an
+English folder name or create folders. This setting applies to each account.
+
 Supply the password through a password manager command or environment variable.
 For example, macOS Keychain can be used with the following config entry after
 you create a generic password named `kwikmail` in Keychain Access:

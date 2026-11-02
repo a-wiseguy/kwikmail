@@ -188,16 +188,61 @@ class AccountSession:
         self._check_ref(ref)
         backend = self.backend
 
+        def mark():
+            try:
+                backend.mark_seen(ref.folder, ref.validity, ref.uid)
+            finally:
+                self._stats.clear()
+
         def marked(_):
-            if ref.folder == self.account.inbox:
-                self._status = replace(self._status, stats_stale=True)
+            self._status = replace(self._status, stats_stale=True)
 
         await self._run(
             self._imap_lock,
-            lambda: backend.mark_seen(ref.folder, ref.validity, ref.uid),
+            mark,
             protocol="IMAP",
             remember=marked,
         )
+
+    async def _mutate(self, refs: tuple[MessageRef, ...], method: str, *args) -> None:
+        refs = tuple(refs)
+        if not refs:
+            raise ValueError("Select messages before changing the mailbox")
+        for ref in refs:
+            self._check_ref(ref)
+        first = refs[0]
+        if any((ref.folder, ref.validity) != (first.folder, first.validity) for ref in refs):
+            raise ValueError("Selected messages must belong to one mailbox version")
+        uids = tuple(dict.fromkeys(ref.uid for ref in refs))
+        backend = self.backend
+
+        def mutate():
+            try:
+                getattr(backend, method)(first.folder, first.validity, uids, *args)
+            finally:
+                self._stats.clear()
+
+        def changed(_):
+            self._status = replace(self._status, stats_stale=True)
+
+        await self._run(
+            self._imap_lock,
+            mutate,
+            protocol="IMAP",
+            remember=changed,
+        )
+
+    async def move(self, refs: tuple[MessageRef, ...], destination: str) -> None:
+        await self._mutate(refs, "move", destination)
+
+    async def trash(self, refs: tuple[MessageRef, ...]) -> None:
+        await self._mutate(refs, "trash")
+
+    async def delete_permanently(self, refs: tuple[MessageRef, ...]) -> None:
+        await self._mutate(refs, "delete_permanently")
+
+    async def set_seen(self, refs: tuple[MessageRef, ...], seen: bool) -> None:
+        await self._mutate(refs, "set_seen", seen)
 
     async def refresh_inbox(self) -> MailboxStats:
         backend, folder = self.backend, self.account.inbox

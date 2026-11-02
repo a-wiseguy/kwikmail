@@ -49,6 +49,7 @@ class Account:
     oauth_tenant: str = "common"
     oauth_username: str = ""
     plaintext_password: str | None = field(default=None, repr=False)
+    trash_folder: str = "auto"
 
     def password(self, smtp: bool = False) -> str:
         if self.plaintext_password is not None and not (smtp and self.smtp_password_env):
@@ -162,6 +163,7 @@ def _parse_account(data: object, table: str, path: Path) -> Account:
         "password_env",
         "smtp_password_env",
         "sent_folder",
+        "trash_folder",
         "inbox",
         "ca_file",
     ):

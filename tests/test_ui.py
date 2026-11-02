@@ -653,7 +653,7 @@ async def test_reader_download_attachments(tmp_path, monkeypatch):
         await pilot.press("g", "enter")
         await settled(pilot)
         assert isinstance(app.screen, ReaderScreen)
-        await pilot.press("d")
+        await pilot.press("ctrl+s")
         await settled(pilot)
         files = list((tmp_path / "Downloads" / "kwikmail").glob("message-*/*"))
         assert len(files) == 1

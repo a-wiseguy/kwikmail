@@ -10,7 +10,7 @@
 | `/` | Fuzzy filter loaded senders and subjects |
 | `s` | Search the entire selected folder, including body text |
 | `Enter` | Open the reader and mark the message read |
-| `Esc` | Leave the reader, or clear the current search |
+| `Esc` | Leave the reader, or clear selection before clearing search |
 | `f` | Fuzzy folder picker |
 | `c` | Compose or resume a saved draft |
 | `R` | Reconnect and refresh |
@@ -19,17 +19,49 @@
 | `a` | Account picker and diagnostics |
 | `t` | Toggle conversations among loaded messages |
 | `e` | Expand or collapse a conversation |
-| `Space` / `Ctrl+P` | Command picker |
+| `Space` | Toggle selection of the current message |
+| `V` | Start / finish live range selection |
+| `Ctrl+A` | Select all visible loaded messages |
+| `d` | Move messages to Trash |
+| `D` | Confirm permanent deletion |
+| `m` | Move messages using a fuzzy folder picker |
+| `u` / `i` | Mark messages unread / read |
+| `Ctrl+P` | Command picker |
 | `?` | Help |
 | `q` / `Ctrl+Q` | Quit |
 
 In pickers, type to filter, `Ctrl+J/K` or arrows to select, and `Enter` to accept.
 In the reader, arrows or `j/k` scroll. `r` replies, `a` replies to all, and `w`
-forwards. `d` downloads attachments. `q` or `Esc` returns to the mailbox.
+forwards. `d`, `D`, `m`, `u`, and `i` act on the open message.
+`Ctrl+S` downloads attachments. `q` or `Esc` returns to the mailbox.
 
 Local fuzzy filtering searches only loaded headers and displays up to 500 ranked
 matches. Server search uses IMAP's substring matching, runs on Enter, and includes
 the selected folder's entire contents. Press `Esc` to return to the unfiltered folder.
+
+## Select and manage messages
+
+Actions use selected rows, or the current row when none are selected. `Space`
+toggles one row. Press `V` to anchor a range, then move with `j/k`, arrows,
+`g/G`, or page keys. The selection updates immediately and includes both endpoints.
+Press `V` again to finish the range. `Esc` clears selection.
+
+Selection covers only visible loaded rows. A collapsed conversation represents
+one message; expand it with `e` to select other members. `Ctrl+A` selects every
+visible loaded row, including filtered results, and never includes unloaded mail.
+Account, folder, search, and conversation-view changes clear selection.
+
+`d` moves the targets to the account's Trash folder. Set `trash_folder` when your
+server does not advertise one unambiguously. `m` opens a fuzzy picker of existing
+destination folders. `D` shows the exact message count and source folder before
+permanent deletion; press `y` to confirm or `n` / `Esc` to cancel. Permanent
+deletion has no undo. `u` marks the targets unread and `i` marks them read.
+
+Moves require IMAP MOVE or UIDPLUS support. Permanent deletion requires UIDPLUS
+on standard IMAP servers. Gmail uses its API for permanent deletion and requires
+OAuth with the Gmail API enabled in the client's Google Cloud project.
+Password-authenticated Gmail accounts cannot permanently delete messages through
+kwikmail.
 
 ## Compose and send
 
@@ -83,13 +115,13 @@ and safe links are preserved. Images display their alternative text without down
 resources; tracking pixels are omitted. Active content, document styles, and elements
 hidden by inline styles or the `hidden` attribute are removed. CSS layouts and colors
 are not reproduced. Links do not launch automatically. Attachments are listed when MIME
-information is available. Press `d` in the reader to download the complete
+information is available. Press `Ctrl+S` in the reader to download the complete
 attachments. Outgoing attachments are not supported.
 
 The sidebar disappears below 110 columns; below 85 columns the message list fills
 the screen and Enter opens the reader. A terminal of at least 80 × 30 is recommended.
 
-The client has no IMAP IDLE/push, automatic polling, offline mail store, delete/move,
+The client has no IMAP IDLE/push, automatic polling, offline mail store,
 or outgoing attachments. For Gmail/Microsoft OAuth and provider presets, see
 [provider setup](providers.md). Use `R` for new mail. Paging uses sequence positions;
 concurrent expunges can change those positions, so refresh if another client removes messages while paging. Server-wide
@@ -97,6 +129,6 @@ search collects matching UIDs and can take longer on a large mailbox.
 
 ## Attachment downloads and scripts
 
-Press `d` in the reader to save attachments beneath `~/Downloads/kwikmail/`.
+Press `Ctrl+S` in the reader to save attachments beneath `~/Downloads/kwikmail/`.
 Each download uses a new directory shown in the notification. For scripting,
 JSON output and quarterly invoice exports, see the [CLI guide](cli.md).

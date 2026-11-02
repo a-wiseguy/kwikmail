@@ -1,7 +1,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
-from .backend import MailboxChanged
+from .backend import MailboxChanged, MutationError
 from .config import Account
 from .mail import build_message
 from .models import (
@@ -61,7 +61,13 @@ class DemoBackend:
             ("Dovecot", "Your mailbox migration is complete"),
         ]
         now = datetime.now(UTC)
-        for folder, size in (("INBOX", count), ("Sent", 12), ("Archive", 38), ("Drafts", 0)):
+        for folder, size in (
+            ("INBOX", count),
+            ("Sent", 12),
+            ("Archive", 38),
+            ("Drafts", 0),
+            ("Trash", 0),
+        ):
             rows = []
             for index in range(size):
                 name, subject = subjects[index % len(subjects)]
@@ -91,6 +97,7 @@ class DemoBackend:
             folder: max((row.uid for row in rows), default=0) + 1
             for folder, rows in self.items.items()
         }
+        self._moved_bodies: dict[tuple[str, int], MailBody] = {}
 
     def folders(self) -> list[str]:
         return list(self.items)
@@ -132,9 +139,11 @@ class DemoBackend:
         if validity != 1:
             raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
         row = next(item for item in self.items[folder] if item.uid == uid)
+        if (folder, uid) in self._moved_bodies:
+            return self._moved_bodies[(folder, uid)]
         content = (
             WELCOME
-            if uid == self.items[folder][0].uid
+            if row.subject == "Welcome to kwikmail"
             else (
                 f"# {row.subject}\n\nHey,\n\n"
                 "A quick update from the lab. Everything is looking good.\n\n"
@@ -177,7 +186,7 @@ class DemoBackend:
         ):
             message[key] = value
         message.set_content(body.markdown)
-        if uid % 5 == 0:
+        if "invoice.txt" in body.attachments:
             message.add_attachment(
                 b"demo invoice\n",
                 maintype="application",
@@ -192,11 +201,47 @@ class DemoBackend:
         return next(row.date for row in self.items[folder] if row.uid == uid)
 
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
+        self.set_seen(folder, validity, (uid,), True)
+
+    def _mutation(self, folder: str, validity: int, uids: tuple[int, ...]) -> None:
         if validity != 1:
             raise MailboxChanged("Demo mailbox changed. Refresh to reload it.")
+        if not uids or not set(uids).issubset(row.uid for row in self.items[folder]):
+            raise MailboxChanged("Selected messages disappeared. Refresh before retrying.")
+
+    def set_seen(self, folder: str, validity: int, uids: tuple[int, ...], seen: bool) -> None:
+        self._mutation(folder, validity, uids)
         self.items[folder] = [
-            replace(row, seen=True) if row.uid == uid else row for row in self.items[folder]
+            replace(row, seen=seen) if row.uid in uids else row for row in self.items[folder]
         ]
+
+    def move(self, folder: str, validity: int, uids: tuple[int, ...], destination: str) -> None:
+        self._mutation(folder, validity, uids)
+        if destination not in self.items or destination == folder:
+            raise MutationError("Choose a different existing destination folder.")
+        rows = [row for row in self.items[folder] if row.uid in uids]
+        bodies = {row.uid: self.body(folder, validity, row.uid) for row in rows}
+        self._uidnext[destination] = max(
+            self._uidnext[destination],
+            max((row.uid for row in self.items[destination]), default=0) + 1,
+        )
+        for row in rows:
+            uid = self._uidnext[destination]
+            self._uidnext[destination] += 1
+            self.items[destination].append(replace(row, uid=uid))
+            self._moved_bodies[(destination, uid)] = replace(bodies[row.uid], uid=uid)
+        self.items[destination].sort(key=lambda row: row.uid, reverse=True)
+        self.delete_permanently(folder, validity, uids)
+
+    def trash(self, folder: str, validity: int, uids: tuple[int, ...]) -> None:
+        destination = self.account.trash_folder
+        self.move(folder, validity, uids, "Trash" if destination == "auto" else destination)
+
+    def delete_permanently(self, folder: str, validity: int, uids: tuple[int, ...]) -> None:
+        self._mutation(folder, validity, uids)
+        self.items[folder] = [row for row in self.items[folder] if row.uid not in uids]
+        for uid in uids:
+            self._moved_bodies.pop((folder, uid), None)
 
     def send(self, draft: Draft) -> tuple[bytes, SendResult]:
         message, _ = build_message(self.account, draft)

@@ -39,6 +39,6 @@ Press `c` to compose, `Ctrl+P` to preview, and `Ctrl+X` to review and send. Draf
 
 ## Scope
 
-Password, app-password and Gmail/Microsoft OAuth authentication. [Provider setup](docs/providers.md). Manual refresh. Attachment downloads and date-range exports are supported. No outgoing attachments, offline mailbox, or delete/move yet.
+Password, app-password and Gmail/Microsoft OAuth authentication. [Provider setup](docs/providers.md). Manual refresh. Attachment downloads and date-range exports are supported. Range selection, folder moves, trash and confirmed permanent deletion are supported. No outgoing attachments or offline mailbox.
 
 [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE) · Built with [Textual](https://github.com/Textualize/textual)

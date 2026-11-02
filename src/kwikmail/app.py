@@ -15,7 +15,7 @@ from .mail import make_response, one_line
 from .models import Draft, MailBody, MailHeader, MessageRef
 from .session import AccountSession
 from .threads import Conversation, flatten_threads, group_threads
-from .widgets import HELP, AccountPicker, MailTable, MailView, Picker, ReaderScreen
+from .widgets import HELP, AccountPicker, ConfirmDelete, MailTable, MailView, Picker, ReaderScreen
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,15 @@ class MailApp(App):
         Binding("q", "safe_quit", "Quit"),
         Binding("ctrl+q,ctrl+c", "safe_quit", "Quit", show=False, priority=True),
         Binding("escape", "escape", "Back", show=False),
-        Binding("ctrl+p,space", "commands", "Commands", show=False),
+        Binding("ctrl+p", "commands", "Commands", show=False),
+        Binding("V", "visual", "Select range"),
+        Binding("space", "toggle_selected", "Select", show=False),
+        Binding("ctrl+a", "select_all", "Select all", show=False),
+        Binding("d", "trash", "Trash"),
+        Binding("D", "delete", "Delete", show=False),
+        Binding("m", "move", "Move"),
+        Binding("u", "mark_unread", "Unread", show=False),
+        Binding("i", "mark_read", "Read", show=False),
         Binding("left,alt+left", "pane(-1)", "Previous pane", show=False),
         Binding("right,alt+right", "pane(1)", "Next pane", show=False),
     ]
@@ -76,6 +84,9 @@ class MailApp(App):
         self.preview_timer = self.filter_timer = None
         self.loading = False
         self.ready = False
+        self.selected_uids: set[int] = set()
+        self.visual_anchor: int | None = None
+        self.mutating = False
 
     @property
     def session(self) -> AccountSession:
@@ -171,12 +182,22 @@ class MailApp(App):
         self.set_class(self.size.width < 110, "compact")
         self.set_class(self.size.width < 85, "narrow")
 
-    def load_folder(self, more: bool = False, reconnect: bool = False) -> None:
+    def load_folder(
+        self,
+        more: bool = False,
+        reconnect: bool = False,
+        focus_uid: int | None = None,
+    ) -> None:
         self.epoch += 1
+        self.clear_selected()
         self.invalidate_selection()
         ticket = self.ticket("mailbox")
         self.loading = True
-        selected_uid = self.selected().uid if more and self.selected() else None
+        selected_uid = (
+            focus_uid
+            if focus_uid is not None
+            else (self.selected().uid if more and self.selected() else None)
+        )
         if not more:
             self.total = self.unread = None
             self.mailbox_error = ""
@@ -274,6 +295,7 @@ class MailApp(App):
         if selected_uid is None:
             previous = self.selected()
             selected_uid = previous.uid if previous else None
+        previous_order = tuple(header.uid for header in self.filtered_headers)
         matches = None
         matched_headers = self.headers
         if self.filter_query:
@@ -313,6 +335,8 @@ class MailApp(App):
         else:
             self.thread_rows = ()
             self.filtered_headers = list(matched_headers)
+        if previous_order != tuple(header.uid for header in self.filtered_headers):
+            self.clear_selected()
         self.table.border_title = "Conversations [loaded/unread]" if self.grouping else "Messages"
         self.table.clear(columns=True)
         width = max(30, self.table.size.width - 2)
@@ -354,6 +378,7 @@ class MailApp(App):
             (i for i, header in enumerate(self.filtered_headers) if header.uid == selected_uid), 0
         )
         self.table.move_cursor(row=index)
+        self.paint_selection()
         result = (
             f"{len(matched_headers)} matches · " if self.filter_query or self.server_query else ""
         )
@@ -386,6 +411,7 @@ class MailApp(App):
     @on(MailTable.RowHighlighted, "#messages")
     def highlight(self, event: MailTable.RowHighlighted) -> None:
         self.invalidate_selection()
+        self.extend_selection()
         header = self.selected()
         if header and not self.loading:
             ticket = self.ticket("preview")
@@ -472,6 +498,153 @@ class MailApp(App):
             self.unread = None
             self.switch_folder(self.session.account.inbox)
 
+    def clear_selected(self) -> None:
+        self.selected_uids.clear()
+        self.visual_anchor = None
+
+    def paint_selection(self) -> None:
+        for header in self.filtered_headers:
+            selected = header.uid in self.selected_uids
+            self.table.update_cell(
+                str(header.uid),
+                "seen",
+                Text(
+                    "✓" if selected else "●" if not header.seen else " ",
+                    style="bold #e0af68" if selected else "#9ece6a",
+                ),
+            )
+        mode = "visual · " if self.visual_anchor is not None else ""
+        self.table.border_subtitle = (
+            f"{mode}{len(self.selected_uids)} selected" if self.selected_uids else ""
+        )
+
+    def extend_selection(self) -> None:
+        if self.visual_anchor is None:
+            return
+        order = [header.uid for header in self.filtered_headers]
+        if self.visual_anchor not in order:
+            self.clear_selected()
+        else:
+            start, stop = sorted((order.index(self.visual_anchor), self.table.cursor_row))
+            self.selected_uids = set(order[start : stop + 1])
+        self.paint_selection()
+
+    def action_visual(self) -> None:
+        header = self.selected()
+        if header is None:
+            return
+        if self.visual_anchor is not None:
+            self.visual_anchor = None
+        else:
+            self.visual_anchor = header.uid
+            self.extend_selection()
+        self.paint_selection()
+
+    def action_toggle_selected(self) -> None:
+        header = self.selected()
+        if header:
+            self.visual_anchor = None
+            self.selected_uids.symmetric_difference_update({header.uid})
+            self.paint_selection()
+
+    def action_select_all(self) -> None:
+        self.visual_anchor = None
+        self.selected_uids = {header.uid for header in self.filtered_headers}
+        self.paint_selection()
+
+    def selected_refs(self) -> tuple[MessageRef, ...]:
+        uids = self.selected_uids or ({self.selected().uid} if self.selected() else set())
+        return tuple(
+            MessageRef(self.session.key, self.folder, self.validity, header.uid)
+            for header in self.filtered_headers
+            if header.uid in uids
+        )
+
+    def action_trash(self) -> None:
+        self.request_message_action("trash", self.selected_refs(), self.session)
+
+    def action_delete(self) -> None:
+        self.request_message_action("delete", self.selected_refs(), self.session)
+
+    def action_move(self) -> None:
+        self.request_message_action("move", self.selected_refs(), self.session)
+
+    def action_mark_read(self) -> None:
+        self.request_message_action("read", self.selected_refs(), self.session)
+
+    def action_mark_unread(self) -> None:
+        self.request_message_action("unread", self.selected_refs(), self.session)
+
+    def request_message_action(
+        self,
+        kind: str,
+        refs: tuple[MessageRef, ...],
+        session: AccountSession,
+    ) -> None:
+        if not refs or self.loading or self.mutating:
+            return
+        context = (session, self.folder, self.validity, self.epoch)
+        if any(
+            (ref.account, ref.folder, ref.validity) != (session.key, self.folder, self.validity)
+            for ref in refs
+        ):
+            return
+
+        def chosen(value) -> None:
+            if not value or not self.message_context_current(context) or self.mutating:
+                return
+            self.mutating = True
+            self.mutate_messages(context, kind, refs, value if kind == "move" else None)
+
+        if kind == "move":
+            choices = {name: name for name in self.folder_names if name != self.folder}
+            self.push_screen(Picker(f"Move {len(refs)} message(s) to", choices), chosen)
+        elif kind == "delete":
+            self.push_screen(ConfirmDelete(len(refs), self.folder), chosen)
+        else:
+            chosen(True)
+
+    def message_context_current(self, context) -> bool:
+        return context == (self.session, self.folder, self.validity, self.epoch)
+
+    @work(group="mutation")
+    async def mutate_messages(self, context, kind, refs, destination) -> None:
+        session = context[0]
+        try:
+            if kind == "move":
+                await session.move(refs, destination)
+            elif kind == "trash":
+                await session.trash(refs)
+            elif kind == "delete":
+                await session.delete_permanently(refs)
+            else:
+                await session.set_seen(refs, kind == "read")
+            if self.message_context_current(context):
+                if isinstance(self.screen, ReaderScreen):
+                    self.pop_screen()
+                self.notify(f"{len(refs)} message(s): {kind}")
+                targets = {ref.uid for ref in refs}
+                row = self.table.cursor_row
+                candidates = self.filtered_headers[row:] + list(
+                    reversed(self.filtered_headers[:row])
+                )
+                focus_uid = (
+                    refs[0].uid
+                    if kind in {"read", "unread"}
+                    else next(
+                        (header.uid for header in candidates if header.uid not in targets), None
+                    )
+                )
+                self.load_folder(focus_uid=focus_uid)
+        except Exception as error:
+            self.notify(f"Message action failed: {error}", severity="error", timeout=10)
+            if self.message_context_current(context):
+                self.load_folder()
+        finally:
+            self.mutating = False
+            if self.ready:
+                self.update_account_bar()
+
     def action_accounts(self) -> None:
         self.push_screen(
             AccountPicker(tuple(self.sessions.values()), self.active_key), self.switch_account
@@ -484,6 +657,7 @@ class MailApp(App):
         )
 
     def action_threads(self) -> None:
+        self.clear_selected()
         self.grouping = not self.grouping
         self.render_rows()
         self.status(
@@ -493,6 +667,7 @@ class MailApp(App):
     def action_expand(self) -> None:
         if not self.grouping or not self.thread_rows:
             return
+        self.clear_selected()
         row = self.thread_rows[self.table.cursor_row]
         if row.thread_key in self.expanded:
             self.expanded.remove(row.thread_key)
@@ -513,6 +688,8 @@ class MailApp(App):
         panes[(index + direction) % len(panes)].focus()
 
     def action_search(self) -> None:
+        self.clear_selected()
+        self.paint_selection()
         self.search_mode = "local"
         self.search_input.placeholder = "Fuzzy find loaded messages…"
         self.search_input.value = self.filter_query
@@ -520,6 +697,8 @@ class MailApp(App):
         self.search_input.focus()
 
     def action_server_search(self) -> None:
+        self.clear_selected()
+        self.paint_selection()
         self.search_mode = "server"
         self.search_input.placeholder = "Search entire folder on server · Enter to run"
         self.search_input.value = self.server_query
@@ -529,6 +708,9 @@ class MailApp(App):
     @on(Input.Changed, "#search")
     def filter_changed(self, event: Input.Changed) -> None:
         if self.search_mode == "local":
+            if self.ready and self.filter_query != event.value:
+                self.clear_selected()
+                self.paint_selection()
             self.filter_query = event.value
             if self.filter_timer:
                 self.filter_timer.stop()
@@ -543,6 +725,10 @@ class MailApp(App):
         self.table.focus()
 
     def action_escape(self) -> None:
+        if self.selected_uids or self.visual_anchor is not None:
+            self.clear_selected()
+            self.paint_selection()
+            return
         had_server = bool(self.server_query)
         self.search_mode = "local"
         self.server_query = self.filter_query = ""
@@ -611,6 +797,13 @@ class MailApp(App):
 
     def action_commands(self) -> None:
         commands = {
+            "trash": "d  Move selected messages to Trash",
+            "delete": "D  Permanently delete selected messages",
+            "move": "m  Move selected messages to a folder",
+            "visual": "V  Select a live range",
+            "select_all": "ctrl+a  Select all visible messages",
+            "mark_unread": "u  Mark selected messages unread",
+            "mark_read": "i  Mark selected messages read",
             "search": "/  Fuzzy find messages",
             "server_search": "s  Search server",
             "folders": "f  Jump to mailbox",
@@ -630,6 +823,24 @@ class MailApp(App):
             getattr(self, f"action_{command}")()
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        selection_actions = {
+            "visual",
+            "toggle_selected",
+            "select_all",
+            "trash",
+            "delete",
+            "move",
+            "mark_read",
+            "mark_unread",
+        }
+        if action in selection_actions:
+            return (
+                self.ready
+                and len(self.screen_stack) == 1
+                and self.focused is self.table
+                and not self.loading
+                and not self.mutating
+            )
         mailbox_actions = {
             "search",
             "server_search",

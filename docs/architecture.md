@@ -135,6 +135,23 @@ size before fetching complete bytes with `BODY.PEEK`. Downloads reject truncated
 or oversized responses. Reader downloads use the captured session and message
 reference; switching accounts cannot redirect them.
 
+## Message actions
+
+Mailbox selection stores UIDs scoped to the current account, folder and mailbox
+version, not row numbers. Actions snapshot immutable message references before
+opening a folder picker or deletion confirmation. Only
+visible loaded rows participate; collapsed conversations contribute their visible
+representative. Reader actions use their captured account session and message
+reference, independent of mailbox selection.
+
+Session mutations validate the source folder and UIDVALIDITY before changing
+messages. Move and permanent-delete operations must preserve unrelated messages
+already flagged for deletion. Backends reject operations that lack a safe,
+targeted implementation. Trash discovery requires one selectable `\Trash` folder
+or an explicit existing destination. No operation creates remote folders.
+
+## Export scanning
+
 The export scanner reads one complete message at a time. Invoice matching accepts
 an attachment or a keyword in decoded subject/text parts. Each export gets a new
 directory, original EML files, decoded attachments and a JSON manifest. File writes

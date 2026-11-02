@@ -42,7 +42,7 @@ the UI preview limit. Named inline MIME parts also count as attachments. Attache
 emails are saved as `.eml` files. Filenames are sanitized and numbered; existing
 files are never overwritten. New files have owner-only permissions.
 
-In the terminal reader, press `d` to download attachments into a new directory
+In the terminal reader, press `Ctrl+S` to download attachments into a new directory
 under `~/Downloads/kwikmail/`. The notification shows its location. Opening the
 reader retains its existing mark-as-read behavior.
 

@@ -1,8 +1,10 @@
+import json
 import smtplib
 import ssl
 from collections import OrderedDict
 from contextlib import suppress
 from datetime import UTC, datetime
+from http.client import HTTPSConnection
 
 from imapclient import IMAPClient
 from imapclient.exceptions import LoginError
@@ -21,8 +23,14 @@ class MailboxChanged(ValueError):
     pass
 
 
+class MutationError(ValueError):
+    pass
+
+
 def connection_error(error: Exception, protocol: str) -> str:
     """Do not expose server replies, credentials, subprocess output or terminal controls."""
+    if isinstance(error, MutationError):
+        return str(error)
     if isinstance(error, LoginRequired):
         detail = "OAuth login required; run --account NAME --login"
     elif isinstance(error, OAuthPolicyError):
@@ -299,11 +307,115 @@ class ImapBackend:
         return raw
 
     def mark_seen(self, folder: str, validity: int, uid: int) -> None:
+        self.set_seen(folder, validity, (uid,), True)
+
+    def _mutation(self, folder: str, validity: int, uids: tuple[int, ...]) -> IMAPClient:
+        if not uids or any(type(uid) is not int or uid < 1 for uid in uids):
+            raise MutationError("Select existing messages before changing the mailbox.")
         client = self.connection()
+        client.use_uid = True
         info = client.select_folder(folder, readonly=False)
         if int(info[b"UIDVALIDITY"]) != validity:
-            raise MailboxChanged("Mailbox changed. Refresh before marking messages read.")
-        client.add_flags([uid], [b"\\Seen"])
+            raise MailboxChanged("Mailbox changed. Refresh before changing messages.")
+        if set(client.fetch(uids, ["UID"])) != set(uids):
+            raise MailboxChanged("Selected messages disappeared. Refresh before retrying.")
+        return client
+
+    def _invalidate_bodies(self) -> None:
+        self.bodies.clear()
+
+    def set_seen(self, folder: str, validity: int, uids: tuple[int, ...], seen: bool) -> None:
+        client = self._mutation(folder, validity, uids)
+        try:
+            operation = client.add_flags if seen else client.remove_flags
+            operation(uids, [b"\\Seen"])
+        finally:
+            self._invalidate_bodies()
+
+    def _destination(self, destination: str) -> str:
+        folders = self.connection().list_folders()
+        selectable = [name for flags, _, name in folders if b"\\Noselect" not in flags]
+        if destination not in selectable:
+            raise MutationError("Choose an existing selectable destination folder.")
+        return destination
+
+    def _trash_folder(self) -> str:
+        if self.account.trash_folder != "auto":
+            return self._destination(self.account.trash_folder)
+        folders = [
+            name
+            for flags, _, name in self.connection().list_folders()
+            if b"\\Trash" in flags and b"\\Noselect" not in flags
+        ]
+        if len(folders) != 1:
+            raise MutationError("Set trash_folder to one existing selectable Trash folder.")
+        return folders[0]
+
+    def move(self, folder: str, validity: int, uids: tuple[int, ...], destination: str) -> None:
+        destination = self._destination(destination)
+        if destination == folder:
+            raise MutationError("Choose a different destination folder.")
+        client = self._mutation(folder, validity, uids)
+        if not (client.has_capability("MOVE") or client.has_capability("UIDPLUS")):
+            raise MutationError("Safe move requires server MOVE or UIDPLUS support.")
+        try:
+            if client.has_capability("MOVE"):
+                client.move(uids, destination)
+            else:
+                client.copy(uids, destination)
+                client.delete_messages(uids)
+                client.uid_expunge(uids)
+        finally:
+            self._invalidate_bodies()
+
+    def trash(self, folder: str, validity: int, uids: tuple[int, ...]) -> None:
+        self.move(folder, validity, uids, self._trash_folder())
+
+    def delete_permanently(self, folder: str, validity: int, uids: tuple[int, ...]) -> None:
+        client = self._mutation(folder, validity, uids)
+        gmail = self.account.provider == "gmail" or client.has_capability("X-GM-EXT-1")
+        if gmail:
+            if self.account.provider != "gmail" or self.account.auth != "oauth2":
+                raise MutationError("Gmail permanent deletion requires a Gmail OAuth account.")
+            rows = client.fetch(uids, ["X-GM-MSGID"])
+            try:
+                ids = [format(int(rows[uid][b"X-GM-MSGID"]), "x") for uid in uids]
+            except (KeyError, TypeError, ValueError):
+                raise MutationError(
+                    "Gmail message IDs unavailable. Refresh before retrying."
+                ) from None
+            token = self.tokens.access_token()
+            connection = HTTPSConnection(
+                "gmail.googleapis.com",
+                timeout=self.account.timeout,
+                context=ssl.create_default_context(cafile=self.account.ca_file),
+            )
+            try:
+                connection.request(
+                    "POST",
+                    "/gmail/v1/users/me/messages/batchDelete",
+                    body=json.dumps({"ids": ids}),
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                if response.status != 204 and response.status != 200:
+                    raise MutationError(
+                        "Gmail permanent deletion failed. Check Gmail API access and refresh."
+                    )
+            finally:
+                connection.close()
+                self._invalidate_bodies()
+            return
+        if not client.has_capability("UIDPLUS"):
+            raise MutationError("Safe permanent deletion requires server UIDPLUS support.")
+        try:
+            client.delete_messages(uids)
+            client.uid_expunge(uids)
+        finally:
+            self._invalidate_bodies()
 
     def append_sent(self, raw: bytes) -> None:
         folder = self.account.sent_folder

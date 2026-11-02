@@ -23,12 +23,13 @@ if TYPE_CHECKING:
 
 class MailTable(DataTable):
     BINDINGS = [
+        Binding("space", "app.toggle_selected", "Select", show=False, priority=True),
         Binding("left", "app.pane(-1)", "Previous pane", show=False, priority=True),
         Binding("right", "app.pane(1)", "Next pane", show=False, priority=True),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
-        Binding("g", "scroll_top", "First", show=False),
-        Binding("G", "scroll_bottom", "Last", show=False),
+        Binding("g,home", "scroll_top", "First", show=False),
+        Binding("G,end", "scroll_bottom", "Last", show=False),
         Binding("ctrl+d", "page_down", "Page down", show=False),
         Binding("ctrl+u", "page_up", "Page up", show=False),
     ]
@@ -80,7 +81,12 @@ class ReaderScreen(Screen):
         ("r", "respond('reply')", "Reply"),
         ("a", "respond('reply_all')", "Reply all"),
         ("w", "respond('forward')", "Forward"),
-        ("d", "download", "Download attachments"),
+        ("d", "message_action('trash')", "Trash"),
+        ("D", "message_action('delete')", "Delete permanently"),
+        ("m", "message_action('move')", "Move"),
+        ("u", "message_action('unread')", "Mark unread"),
+        ("i", "message_action('read')", "Mark read"),
+        ("ctrl+s", "download", "Download attachments"),
     ]
 
     def __init__(
@@ -98,7 +104,8 @@ class ReaderScreen(Screen):
         yield Static(" KWIKMAIL  /  READER", classes="topbar")
         yield MailView(id="reader-view")
         yield Static(
-            " esc  back    ↑/↓  scroll    r  reply    a  reply all    w  forward    d  download"
+            " esc  back    r/a/w  reply/all/forward    d  trash    D  delete    m  move"
+            "    u/i  unread/read    ctrl+s  attachments"
             if self.session
             else " esc  back    ↑/↓  scroll    ctrl+d/u  page",
             classes="bottom-hint",
@@ -133,6 +140,10 @@ class ReaderScreen(Screen):
     def action_respond(self, kind: str) -> None:
         if self.session is not None:
             self.app.start_response(self.session, self.body, kind)
+
+    def action_message_action(self, kind: str) -> None:
+        if self.session is not None and self.ref is not None:
+            self.app.request_message_action(kind, (self.ref,), self.session)
 
     def action_back(self) -> None:
         self.app.pop_screen()
@@ -210,6 +221,31 @@ class Picker(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class ConfirmDelete(ModalScreen[bool]):
+    BINDINGS = [("escape,n", "cancel", "Cancel"), ("y", "confirm", "Delete permanently")]
+
+    def __init__(self, count: int, folder: str):
+        super().__init__()
+        self.count = count
+        self.folder = folder
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="confirm-dialog"):
+            yield Static("Permanently delete messages?", classes="dialog-title")
+            yield Static(
+                f"Messages: {self.count}\nFolder: {self.folder}\n\n"
+                "These messages cannot be recovered through kwikmail.",
+                markup=False,
+            )
+            yield Static("\n y  delete permanently    n / esc  cancel", classes="muted")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
 
 
 class ConfirmSend(ModalScreen[bool]):
@@ -433,7 +469,7 @@ HELP = """# The keyboard is the interface
 | `/` | Fuzzy filter loaded senders and subjects |
 | `s` | Search all messages in this folder on the server |
 | `Enter` | Read and mark as read |
-| `Esc` | Clear search / return to messages |
+| `Esc` | Clear selection, then search / return to messages |
 | `f` | Fuzzy folder picker |
 | `c` | Compose / resume saved draft |
 | `R` | Refresh and reconnect |
@@ -442,13 +478,30 @@ HELP = """# The keyboard is the interface
 | `a` | Accounts, inbox statistics, and diagnostics |
 | `t` | Toggle conversations among loaded headers |
 | `e` | Expand or collapse the selected conversation |
-| `Ctrl+P` or `Space` | Command picker |
+| `Space` | Toggle the current message selection |
+| `V` | Start / finish a live inclusive range selection |
+| `Ctrl+A` | Select all visible loaded messages |
+| `d` / `D` | Trash / confirm permanent deletion |
+| `m` | Fuzzy destination folder picker for moving messages |
+| `u` / `i` | Mark unread / read |
+| `Ctrl+P` | Command picker |
 | `q` / `Ctrl+Q` | Quit |
 
 ## Reader
 
 `Up` and `Down` scroll. `r` replies, `a` replies to all, and `w` forwards.
 A saved draft can be resumed, replaced, or kept unchanged.
+`d` trashes, `D` confirms permanent deletion, and `m` picks a destination folder.
+`u` marks unread and `i` marks read. `Ctrl+S` downloads attachments.
+These actions target only the open message.
+
+## Selection
+
+Mailbox actions use selected rows, or the current row when none are selected.
+After `V`, movement adjusts the range immediately, including both endpoints.
+`V` finishes the range; `Esc` clears selection. Only visible loaded rows are
+selected. A collapsed conversation targets its representative message; expand it
+to select other members. `Ctrl+A` never selects unloaded messages.
 
 ## Composer
 
@@ -465,6 +518,6 @@ Drafts autosave after a pause in typing and are stored locally as plain text.
 `s` sends a text search to IMAP, including message bodies. Press Enter to run it.
 It uses the server's substring matching, not fuzzy matching.
 
-Attachments are listed when available, but opening or adding them is outside v1.
+Attachments can be downloaded in the reader. Outgoing attachments are not supported.
 Links and remote images never open automatically. No remote content is downloaded.
 """
